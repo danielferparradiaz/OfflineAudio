@@ -1038,6 +1038,7 @@ impl SseDecode for crate::engine::models::ContentKind {
         return match inner {
             0 => crate::engine::models::ContentKind::Music,
             1 => crate::engine::models::ContentKind::Speech,
+            2 => crate::engine::models::ContentKind::Video,
             _ => unreachable!("Invalid variant for ContentKind: {}", inner),
         };
     }
@@ -1500,6 +1501,7 @@ impl flutter_rust_bridge::IntoDart for crate::engine::models::ContentKind {
         match self {
             Self::Music => 0.into_dart(),
             Self::Speech => 1.into_dart(),
+            Self::Video => 2.into_dart(),
             _ => unreachable!(),
         }
     }
@@ -1783,6 +1785,7 @@ impl SseEncode for crate::engine::models::ContentKind {
             match self {
                 crate::engine::models::ContentKind::Music => 0,
                 crate::engine::models::ContentKind::Speech => 1,
+                crate::engine::models::ContentKind::Video => 2,
                 _ => {
                     unimplemented!("");
                 }

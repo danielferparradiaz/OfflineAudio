@@ -39,6 +39,7 @@ pub struct Playlist {
 pub enum ContentKind {
     Music,
     Speech,
+    Video,
 }
 
 impl ContentKind {
@@ -46,23 +47,31 @@ impl ContentKind {
         match self {
             ContentKind::Music => "music",
             ContentKind::Speech => "speech",
+            ContentKind::Video => "video",
         }
     }
 
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> ContentKind {
-        if s == "speech" {
-            ContentKind::Speech
-        } else {
-            ContentKind::Music
+        match s {
+            "speech" => ContentKind::Speech,
+            "video" => ContentKind::Video,
+            _ => ContentKind::Music,
         }
     }
 
-    /// Opus bitrate in kbps for each kind.
+    /// True for raw video downloads (stored as `.mp4`, no ffmpeg transcode).
+    pub fn is_video(&self) -> bool {
+        matches!(self, ContentKind::Video)
+    }
+
+    /// Opus bitrate in kbps for each kind (video does not use ffmpeg audio
+    /// transcoding, so its bitrate is unused).
     pub fn bitrate_kbps(&self) -> u32 {
         match self {
             ContentKind::Music => 96,
             ContentKind::Speech => 32,
+            ContentKind::Video => 0,
         }
     }
 
@@ -71,6 +80,7 @@ impl ContentKind {
         match self {
             ContentKind::Music => "audio",
             ContentKind::Speech => "voip",
+            ContentKind::Video => "audio",
         }
     }
 }

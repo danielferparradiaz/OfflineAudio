@@ -253,17 +253,6 @@ pub async fn binaries_status() -> Result<BinariesStatus> {
     })
 }
 
-/// Default download sources for the Android runtime binaries. Overridable via
-/// the `binary.ytdlp_url` / `binary.ffmpeg_url` settings (Ajustes > Paquetes).
-/// Host your own static builds (e.g. a `OfflineAudio-Binaries` release) and
-/// point these URLs there.
-#[cfg(target_os = "android")]
-const DEFAULT_YTDLP_URL: &str =
-    "https://github.com/danielferparradiaz/OfflineAudio-Binaries/releases/latest/download/yt-dlp";
-#[cfg(target_os = "android")]
-const DEFAULT_FFMPEG_URL: &str =
-    "https://github.com/danielferparradiaz/OfflineAudio-Binaries/releases/latest/download/ffmpeg";
-
 /// Download yt-dlp + ffmpeg into the app binary dir. Only implemented for
 /// Android for now (iOS still needs a reliable static binary source — TODO).
 #[flutter_rust_bridge::frb]

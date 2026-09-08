@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show ImageFilter;
 
@@ -7,6 +6,7 @@ import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/rust/engine/models.dart';
 import 'package:offline_audio_app/src/screens/add_screen.dart';
+import 'package:offline_audio_app/src/search/youtube_search.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -16,55 +16,154 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
-  String _query = '';
   SortOrder _order = SortOrder.dateDesc;
   final _searchController = TextEditingController();
-  Timer? _debounce;
+
+  /// Search state. While `null`, the library list is shown; otherwise we show
+  /// either results, the spinner, or an error banner.
+  List<SearchResult>? _results;
+  bool _searching = false;
+  String? _searchError;
+  String? _activeQuery;
 
   @override
   void dispose() {
-    _debounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
-  void _onSearchChanged(String value) {
-    setState(() => _query = value.trim());
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), () {
-      if (!mounted) return;
-      AppModelProvider.of(context).reloadLibrary(
-        search: _query.isEmpty ? null : _query,
-        order: _order,
-      );
+  Future<void> _serveLibrary() async {
+    setState(() {
+      _results = null;
+      _searchError = null;
+      _searching = false;
+      _activeQuery = null;
     });
+    await AppModelProvider.of(context)
+        .reloadLibrary(search: null, order: _order);
+  }
+
+  Future<void> _searchNow() async {
+    final q = _searchController.text.trim();
+    if (q.isEmpty) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _searching = true;
+      _searchError = null;
+      _activeQuery = q;
+    });
+    try {
+      final results = await YoutubeSearch.search(q);
+      if (!mounted) return;
+      setState(() {
+        _searching = false;
+        _results = results;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _searching = false;
+        _searchError = 'No se pudo buscar en YouTube. Revisa tu conexión e '
+            'inténtalo de nuevo.\n($e)';
+      });
+    }
+  }
+
+  Future<void> _startDownload(SearchResult result, ContentKind kind) async {
+    try {
+      final model = AppModelProvider.of(context);
+      final taskId = await model.downloadFromUrl(result.url, kind: kind);
+      if (!mounted) return;
+      final short = taskId.length <= 8 ? taskId : taskId.substring(0, 8);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Descarga iniciada ($short). Ver pestaña Descargas.'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo iniciar la descarga: $e')),
+      );
+    }
   }
 
   void _onOrderSelected(SortOrder value) {
     setState(() => _order = value);
-    AppModelProvider.of(context).reloadLibrary(
-      search: _query.isEmpty ? null : _query,
-      order: _order,
-    );
+    _serveLibrary();
   }
 
   @override
   Widget build(BuildContext context) {
     final model = AppModelProvider.of(context);
-    final tracks = model.library;
 
     return SafeArea(
       child: Stack(
         children: [
-          Positioned.fill(child: _buildList(context, model, tracks)),
+          Positioned.fill(child: _buildContent(context, model)),
           _buildFrostedTop(context),
         ],
       ),
     );
   }
 
-  /// Frosted header + search that float above the scrolling list. Music flows
-  /// underneath and the translucent surface lets the movement show through.
+  Widget _buildContent(BuildContext context, AppModel model) {
+    if (_searching) {
+      return const _SearchFeedback(
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_searchError != null) {
+      return _SearchFeedback(
+        child: _SearchError(
+          message: _searchError!,
+          onRetry: _searchNow,
+          onClose: _serveLibrary,
+        ),
+      );
+    }
+    final results = _results;
+    if (results != null) {
+      return _buildResults(context, model, results);
+    }
+    return _buildList(context, model, model.library);
+  }
+
+  Widget _buildResults(
+      BuildContext context, AppModel model, List<SearchResult> results) {
+    return ListView(
+      padding: const EdgeInsets.only(top: 150, bottom: 8),
+      children: [
+        _SearchHeader(query: _activeQuery ?? '', onClose: _serveLibrary),
+        const SizedBox(height: 4),
+        if (results.isEmpty)
+          Padding(
+            padding: const EdgeInsets.all(32),
+            child: Text(
+              'Sin resultados para «${_activeQuery ?? ''}»\nPrueba con otra '
+              'búsqueda.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white54),
+            ),
+          )
+        else
+          ...results.map(
+            (r) => _SearchResultTile(
+              result: r,
+              onDownloadAudio: () =>
+                  _startDownload(r, ContentKind.music),
+              onDownloadVideo: () =>
+                  _startDownload(r, ContentKind.video),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Frosted header + search that float above the scrolling content. Music
+  /// flows underneath and the translucent surface lets the movement show
+  /// through. `mainAxisSize.min` keeps this panel to its own contents so the
+  /// blurred surface never swallows the whole screen.
   Widget _buildFrostedTop(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return ClipRRect(
@@ -82,6 +181,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ),
           ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               _buildHeader(context),
               _buildSearchField(context),
@@ -155,8 +255,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
       child: TextField(
         controller: _searchController,
         decoration: InputDecoration(
-          prefixIcon: const Icon(Icons.search),
-          hintText: 'Buscar en la biblioteca',
+          prefixIcon: IconButton(
+            icon: const Icon(Icons.search),
+            tooltip: 'Buscar en YouTube',
+            onPressed: _searchNow,
+          ),
+          hintText: 'Buscar',
           filled: true,
           fillColor: Theme.of(context)
               .colorScheme
@@ -166,17 +270,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
             borderRadius: BorderRadius.circular(26),
             borderSide: BorderSide.none,
           ),
-          suffixIcon: _query.isEmpty
+          suffixIcon: _searchController.text.isEmpty
               ? null
               : IconButton(
                   icon: const Icon(Icons.clear),
-                  onPressed: () {
-                    _searchController.clear();
-                    _onSearchChanged('');
-                  },
+                  onPressed: _serveLibrary,
                 ),
         ),
-        onChanged: _onSearchChanged,
+        textInputAction: TextInputAction.search,
+        onSubmitted: (_) => _searchNow(),
+        onChanged: (_) => setState(() {}),
       ),
     );
   }
@@ -205,7 +308,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
     return ListView(
       // Start below the floating frosted header + search.
-      padding: const EdgeInsets.only(top: 130, bottom: 8),
+      padding: const EdgeInsets.only(top: 150, bottom: 8),
       children: [
         if (recent.isNotEmpty) ...[
           const _SectionHeader('Reciente'),
@@ -226,6 +329,176 @@ class _LibraryScreenState extends State<LibraryScreen> {
       ],
     );
   }
+}
+
+/// Shared area shown between the frosted header and the list bottom while the
+/// search is busy / failed.
+class _SearchFeedback extends StatelessWidget {
+  const _SearchFeedback({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.only(top: 150, bottom: 32),
+      child: child,
+    );
+  }
+}
+
+class _SearchError extends StatelessWidget {
+  const _SearchError({
+    required this.message,
+    required this.onRetry,
+    required this.onClose,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.cloud_off, size: 48, color: Colors.white38),
+          const SizedBox(height: 12),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white70),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FilledButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Reintentar'),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: onClose,
+                child: const Text('Volver a la biblioteca'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SearchHeader extends StatelessWidget {
+  const _SearchHeader({required this.query, required this.onClose});
+
+  final String query;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Resultados para «$query»',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: 'Cerrar búsqueda',
+            onPressed: onClose,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SearchResultTile extends StatelessWidget {
+  const _SearchResultTile({
+    required this.result,
+    required this.onDownloadAudio,
+    required this.onDownloadVideo,
+  });
+
+  final SearchResult result;
+  final VoidCallback onDownloadAudio;
+  final VoidCallback onDownloadVideo;
+
+  @override
+  Widget build(BuildContext context) {
+    final duration = result.duration;
+    return ListTile(
+      leading: ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: Image.network(
+          result.thumbnailUrl,
+          width: 56,
+          height: 56,
+          fit: BoxFit.cover,
+          errorBuilder: (_, error, stack) =>
+              const SizedBox(
+                width: 56,
+                height: 56,
+                child: ColoredBox(
+                  color: Color(0xFF2A2A2A),
+                  child: Icon(Icons.movie, color: Colors.white54),
+                ),
+              ),
+        ),
+      ),
+      title: Text(
+        result.title,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        [
+          result.author,
+          if (duration != null) _fmtLength(duration),
+        ].join(' · '),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            tooltip: 'Descargar audio',
+            onPressed: onDownloadAudio,
+          ),
+          IconButton(
+            icon: const Icon(Icons.videocam),
+            tooltip: 'Descargar vídeo (MP4)',
+            onPressed: onDownloadVideo,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _fmtLength(Duration d) {
+  final h = d.inHours;
+  final m = d.inMinutes.remainder(60);
+  final s = d.inSeconds.remainder(60);
+  if (h > 0) return '${h}h ${m}m';
+  return '${m}m ${s.toString().padLeft(2, '0')}s';
 }
 
 /// Calling card for the most recently downloaded item: artwork, metadata and
@@ -350,6 +623,7 @@ class _TrackTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final thumb = props.thumbnailPath;
+    final isVideo = props.contentKind == 'video';
     return ListTile(
       leading: thumb != null
           ? ClipRRect(
@@ -382,6 +656,11 @@ class _TrackTile extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (isVideo)
+            const Padding(
+              padding: EdgeInsets.only(right: 4),
+              child: Icon(Icons.videocam, size: 16, color: Colors.white54),
+            ),
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'add_playlist') {
@@ -478,12 +757,7 @@ class _TrackTile extends StatelessWidget {
 
   String _fmtDuration(int? secs) {
     if (secs == null) return '';
-    final d = Duration(seconds: secs);
-    final h = d.inHours;
-    final m = d.inMinutes.remainder(60);
-    final s = d.inSeconds.remainder(60);
-    if (h > 0) return '${h}h ${m}m';
-    return '${m}m ${s.toString().padLeft(2, '0')}s';
+    return _fmtLength(Duration(seconds: secs));
   }
 }
 
@@ -517,7 +791,8 @@ class _EmptyLibrary extends StatelessWidget {
             Icon(Icons.library_music_outlined, size: 64, color: Colors.white24),
             SizedBox(height: 16),
             Text(
-              'Tu biblioteca está vacía.\nAñade una URL para empezar.',
+              'Tu biblioteca está vacía.\nBusca en YouTube o añade una URL '
+              'para empezar.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white54),
             ),

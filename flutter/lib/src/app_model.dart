@@ -55,6 +55,18 @@ class AppModel extends ChangeNotifier {
 
   Track? get currentTrack => _currentTrack;
 
+  mk.Player? get player => _player;
+
+  /// Whether the current track is a downloaded video (MP4), so the UI can
+  /// offer the fullscreen video player.
+  bool get isCurrentVideo => _currentTrack?.contentKind == 'video';
+
+  /// Download any supported URL directly, bypassing the probe flow of the
+  /// settings screen. `kind` selects an audio (music/speech) vs video task.
+  Future<String> downloadFromUrl(String url,
+          {ContentKind kind = ContentKind.music}) async =>
+      startDownload(url: url, kind: kind);
+
   AppModel();
 
   List<Track> get library => List.unmodifiable(_library);

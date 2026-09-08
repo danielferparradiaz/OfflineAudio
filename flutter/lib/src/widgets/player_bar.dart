@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:offline_audio_app/src/app_model.dart';
+import 'package:offline_audio_app/src/screens/video_player_screen.dart';
 
 String _fmtClock(Duration d) {
   final h = d.inHours;
@@ -53,7 +54,10 @@ class PlayerBar extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.music_note, color: Colors.white70),
+              Icon(
+                model.isCurrentVideo ? Icons.videocam : Icons.music_note,
+                color: Colors.white70,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Column(
@@ -80,6 +84,16 @@ class PlayerBar extends StatelessWidget {
                   ],
                 ),
               ),
+              if (model.isCurrentVideo)
+                IconButton(
+                  icon: const Icon(Icons.fullscreen),
+                  tooltip: 'Reproducir vídeo',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => VideoPlayerScreen(track: track),
+                    ),
+                  ),
+                ),
               IconButton(
                 icon: const Icon(Icons.skip_previous),
                 tooltip: 'Anterior',

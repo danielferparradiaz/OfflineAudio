@@ -27,6 +27,20 @@ este repo al crear un tag `v*`.
 > `brew install yt-dlp ffmpeg` (macOS) / `winget install yt-dlp.yt-dlp` y
 > `winget install Gyan.FFmpeg` (Windows).
 
+## Búsqueda y vídeo
+
+- La **barra de búsqueda de la biblioteca** busca directamente en YouTube
+  (proyecto [`youtube_explode_dart`, fijado a `3.1.0`](flutter/pubspec.yaml)).
+  Teclea, pulsa Enter o la lupa y verás resultados con miniatura, título,
+  autor, duración y dos botones por resultado: **audio** (+) y **vídeo**
+  (cámara). El botón `+` descarga a **Opus**; el de cámara baja el **MP4**
+  (`yt-dlp -f bv\*+ba/b --merge-output-format mp4`), revisado con `ffprobe`
+  antes de guardarse en la biblioteca.
+- Los vídeos se reproducen desde la barra de reproducción (icono de pantalla
+  completa) con el reproductor nativo de `media_kit_video`. La búsqueda está
+  desacoplada del motor: vive en el front (`lib/src/search/youtube_search.dart`)
+  y las descargas entran por la misma tubería que las URLs del botón Añadir.
+
 ## Roadmap
 
 - [ ] **Apple Watch (reloj)** — soporte para ver y controlar el reproductor desde

@@ -103,9 +103,16 @@ pub fn convert_from_file(
 /// (catches truncated/partial conversions).
 pub async fn validate_opus(output: &Path, kind: &ContentKind) -> Result<u64> {
     let _ = kind;
+    validate_media(output).await
+}
+
+/// Validate any media output file (Opus, MP4, ...): exists, non-empty, and
+/// decodable by ffprobe. Removes the file when it is clearly invalid so a
+/// corrupt download never stays cached.
+pub async fn validate_media(output: &Path) -> Result<u64> {
     let meta = std::fs::metadata(output);
     match meta {
-        Ok(m) if m.len() == 0 => bail!("conversión vacía"),
+        Ok(m) if m.len() == 0 => bail!("fichero de salida vacío"),
         Ok(_) => {}
         Err(_) => bail!("fichero de salida no creado"),
     }
@@ -124,7 +131,7 @@ pub async fn validate_opus(output: &Path, kind: &ContentKind) -> Result<u64> {
         if let Ok(out) = probe {
             if !out.status.success() {
                 std::fs::remove_file(output).ok();
-                bail!("el fichero de audio generado no es válido");
+                bail!("el fichero de media generado no es válido");
             }
         }
     }

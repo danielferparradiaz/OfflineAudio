@@ -23,6 +23,8 @@ use crate::engine::AppEngine;
 
 /// Safety margin added on top of the estimated size for the disk check.
 const DISK_MARGIN_BYTES: u64 = 30 * 1024 * 1024;
+/// Rough video bitrate used when the probe did not report a size (~16 Mbps).
+const VIDEO_BYTES_PER_SEC: u64 = 2_000_000;
 const MAX_THUMBNAIL_BYTES: u64 = 8 * 1024 * 1024;
 /// Hard cap on the (optional) thumbnail fetch so it can never stall a task.
 const THUMBNAIL_TIMEOUT_SECS: u64 = 15;
@@ -152,6 +154,24 @@ async fn run_download(
         });
     }
 
+    if kind.is_video() {
+        run_video_download(engine, task_id, &url, &probe, token).await?;
+    } else {
+        run_audio_download(engine, task_id, &url, &kind, &probe, token).await?;
+    }
+    Ok(DownloadOutcome::Done)
+}
+
+/// Audio path: stream (strategy A) with disk-based fallback (strategy B),
+/// transcode to Opus and persist.
+async fn run_audio_download(
+    engine: &AppEngine,
+    task_id: &str,
+    url: &str,
+    kind: &ContentKind,
+    probe: &ProbeInfo,
+    token: CancellationToken,
+) -> Result<()> {
     // Rough space estimate: duration * audio bitrate + margin.
     if let Some(duration) = probe.duration_seconds {
         let est = (duration as u64) * (kind.bitrate_kbps() as u64) * 1000 / 8 + DISK_MARGIN_BYTES;
@@ -173,25 +193,24 @@ async fn run_download(
         album: probe.album.clone(),
     };
 
-    let mut res =
-        strategy_stream(engine, task_id, &url, &kind, &output, &meta, token.clone()).await;
+    let mut res = strategy_stream(engine, task_id, url, kind, &output, &meta, token.clone()).await;
     if res.is_err() {
         std::fs::remove_file(&output).ok();
-        res = strategy_disk(engine, task_id, &url, &kind, &output, &meta, token.clone()).await;
+        res = strategy_disk(engine, task_id, url, kind, &output, &meta, token.clone()).await;
     }
     res?;
 
-    let size = converter::validate_opus(&output, &kind).await?;
+    let size = converter::validate_opus(&output, kind).await?;
     if size == 0 {
         bail!("no se generó contenido de audio");
     }
 
-    let thumbnail_path = fetch_thumbnail(engine, &probe, &stem).await;
+    let thumbnail_path = fetch_thumbnail(engine, probe, &stem).await;
 
     let track = Track {
         id: Uuid::new_v4().to_string(),
         source_id: probe.source_id.clone(),
-        network_url: probe.webpage_url.clone().unwrap_or(url.clone()),
+        network_url: probe.webpage_url.clone().unwrap_or_else(|| url.to_string()),
         title: probe.title.clone(),
         artist: probe.artist.clone(),
         album: probe.album.clone(),
@@ -206,14 +225,144 @@ async fn run_download(
         play_count: 0,
         last_played: None,
     };
-    engine.db.upsert_track(&track).await?;
+    persist_track(engine, task_id, &track).await
+}
+
+/// Video path: yt-dlp muxes best video+audio into an `.mp4` (no ffmpeg
+/// transcode), stored raw in the cache, and persists a video Track.
+async fn run_video_download(
+    engine: &AppEngine,
+    task_id: &str,
+    url: &str,
+    probe: &ProbeInfo,
+    token: CancellationToken,
+) -> Result<()> {
+    // Disk estimate: prefer the probed size, else duration * rough bitrate.
+    let est = probe
+        .estimated_size_bytes
+        .unwrap_or_else(|| (probe.duration_seconds.unwrap_or(0) as u64) * VIDEO_BYTES_PER_SEC)
+        + DISK_MARGIN_BYTES;
+    let free = paths::free_disk_bytes(&engine.cache_dir)?;
+    if est > free {
+        bail!(
+            "espacio en disco insuficiente: necesita ~{:.0} MB y quedan {:.0} MB",
+            est as f64 / 1024.0 / 1024.0,
+            free as f64 / 1024.0 / 1024.0
+        );
+    }
+
+    let stem = cache_stem(&probe.source_id);
+    let output = engine.cache_dir.join(format!("{stem}.mp4"));
+    ytdlp_download_to_file(engine, task_id, url, &output, token).await?;
+
+    let size = converter::validate_media(&output).await?;
+    if size == 0 {
+        bail!("no se generó contenido de vídeo");
+    }
+
+    let thumbnail_path = fetch_thumbnail(engine, probe, &stem).await;
+
+    let track = Track {
+        id: Uuid::new_v4().to_string(),
+        source_id: probe.source_id.clone(),
+        network_url: probe.webpage_url.clone().unwrap_or_else(|| url.to_string()),
+        title: probe.title.clone(),
+        artist: probe.artist.clone(),
+        album: probe.album.clone(),
+        genre: probe.genre.clone(),
+        duration_seconds: probe.duration_seconds,
+        file_path: output.to_string_lossy().to_string(),
+        thumbnail_path,
+        platform: probe.platform.clone(),
+        content_kind: ContentKind::Video.as_str().to_string(),
+        bitrate_kbps: None,
+        download_date: chrono::Utc::now().to_rfc3339(),
+        play_count: 0,
+        last_played: None,
+    };
+    persist_track(engine, task_id, &track).await
+}
+
+/// Upsert the finished track into the library and notify the UI.
+async fn persist_track(engine: &AppEngine, task_id: &str, track: &Track) -> Result<()> {
+    engine.db.upsert_track(track).await?;
     engine.emit(Event::LibraryChanged);
     engine.emit(Event::DownloadFinished {
         task_id: task_id.to_string(),
-        track,
+        track: track.clone(),
+    });
+    Ok(())
+}
+
+/// Download one media file with yt-dlp to a temp file (progress + cancel),
+/// then move it into the cache at `output`. Used by the video path.
+async fn ytdlp_download_to_file(
+    engine: &AppEngine,
+    task_id: &str,
+    url: &str,
+    output: &Path,
+    token: CancellationToken,
+) -> Result<()> {
+    let keyword = format!("dl_{}", Uuid::new_v4().simple());
+    paths::ensure_dirs()?;
+    let pattern = PathBuf::from(&engine.tmp_dir).join(format!("{keyword}.%(ext)s"));
+    let bin = ytdlp_bin().context("yt-dlp no está instalado")?;
+    let args = downloader::ytdlp_video_args(url, &pattern.to_string_lossy());
+
+    let mut yt = child_log(&bin, &to_refs(&args), null(), null(), pipe()).spawn()?;
+    let yt_stderr = yt.stderr.take().context("sin stderr de yt-dlp")?;
+    let tx = engine.event_tx.clone();
+    let tid = task_id.to_string();
+    let yt_err = tokio::spawn(async move {
+        read_stderr(
+            Box::new(yt_stderr),
+            300,
+            Some(move |line: &str| {
+                if let Some(p) = parse_progress_line(line) {
+                    let _ = tx.send(Event::DownloadProgress {
+                        task_id: tid.clone(),
+                        percent: p.percent,
+                        downloaded_bytes: p.downloaded_bytes,
+                        total_bytes: p.total_bytes,
+                        speed_bytes_sec: p.speed_bytes_sec,
+                        eta_secs: p.eta_secs,
+                    });
+                }
+            }),
+        )
+        .await
     });
 
-    Ok(DownloadOutcome::Done)
+    let yt_status = tokio::select! {
+        _ = token.cancelled() => {
+            let _ = yt.kill().await;
+            bail!("descarga cancelada")
+        }
+        s = yt.wait() => s?
+    };
+    let yt_tail = yt_err.await.unwrap_or_default();
+    if !yt_status.success() {
+        bail!("yt-dlp falló al descargar:\n{}", tail_trim(&yt_tail));
+    }
+
+    let input = converter::find_tmp_download(&engine.tmp_dir, &keyword)
+        .map_err(|e| anyhow::anyhow!("{e}\n{yt_tail}"))?;
+    if std::fs::metadata(&input)
+        .map(|m| m.len() > 0)
+        .unwrap_or(false)
+    {
+        match std::fs::rename(&input, output) {
+            Ok(_) => {}
+            Err(_) => {
+                std::fs::copy(&input, output)?;
+                std::fs::remove_file(&input).ok();
+            }
+        }
+    } else {
+        std::fs::remove_file(&input).ok();
+        bail!("yt-dlp no generó contenido de vídeo");
+    }
+    Ok(())
 }
 
 /// Strategy A: stream yt-dlp stdout directly into ffmpeg stdin.

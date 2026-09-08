@@ -192,6 +192,25 @@ pub fn ytdlp_disk_args(url: &str, dest_pattern: &str) -> Vec<String> {
     ]
 }
 
+/// Args for downloading a full video: best video + best audio muxed into an
+/// `.mp4` container via ffmpeg (`--merge-output-format mp4`).
+pub fn ytdlp_video_args(url: &str, dest_pattern: &str) -> Vec<String> {
+    vec![
+        "-f".into(),
+        "bv*+ba/b".into(),
+        "--merge-output-format".into(),
+        "mp4".into(),
+        "-o".into(),
+        dest_pattern.to_string(),
+        "--newline".into(),
+        "--no-colors".into(),
+        "--no-playlist".into(),
+        "--socket-timeout".into(),
+        "30".into(),
+        url.to_string(),
+    ]
+}
+
 /// Streaming read of a (possibly large) stdout JSON line-by-line is not
 /// needed here; probe output is small. This helper is used by tests.
 pub async fn read_first_line<R: tokio::io::AsyncBufRead + Unpin>(reader: R) -> Result<String> {
@@ -238,5 +257,13 @@ mod tests {
         assert!(args.contains(&"-o".to_string()));
         assert!(args.contains(&"-".to_string()));
         assert!(args.iter().any(|a| a.contains("https://")));
+    }
+
+    #[test]
+    fn video_args_mux_to_mp4() {
+        let args = ytdlp_video_args("https://youtube.com/watch?v=abc", "tmp/%(ext)s");
+        assert!(args.contains(&"bv*+ba/b".to_string()));
+        assert!(args.contains(&"mp4".to_string()));
+        assert!(args.contains(&"tmp/%(ext)s".to_string()));
     }
 }
