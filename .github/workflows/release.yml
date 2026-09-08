@@ -134,18 +134,30 @@ jobs:
   iphone:
     name: 'Build iOS (IPA)'
     runs-on: macos-15
-    if: ${{ secrets.CERTIFICATE_P12_BASE64 != '' }}
     defaults:
       run:
         working-directory: flutter
     steps:
+      - name: Detect signing identity
+        shell: bash
+        run: |
+          if [ -z "$CERTIFICATE_P12_BASE64" ]; then
+            echo "No Apple signing secrets; skipping iOS build."
+            echo "SKIP_IOS=true" >> "$GITHUB_ENV"
+          fi
+        env:
+          CERTIFICATE_P12_BASE64: ${{ secrets.CERTIFICATE_P12_BASE64 }}
       - uses: actions/checkout@v4
+        if: env.SKIP_IOS != 'true'
       - uses: subosito/flutter-action@v2
+        if: env.SKIP_IOS != 'true'
         with:
           channel: stable
           cache: true
       - uses: dtolnay/rust-toolchain@stable
+        if: env.SKIP_IOS != 'true'
       - name: Import signing identity
+        if: env.SKIP_IOS != 'true'
         shell: bash
         run: |
           CERT_PATH="$RUNNER_TEMP/apple_dist.p12"
@@ -164,7 +176,9 @@ jobs:
           PROVISIONING_PROFILES_BASE64: ${{ secrets.PROVISIONING_PROFILES_BASE64 }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
       - run: flutter pub get
+        if: env.SKIP_IOS != 'true'
       - name: Export options
+        if: env.SKIP_IOS != 'true'
         shell: bash
         run: |
           cat > exportOptions.plist <<EOF
@@ -181,11 +195,14 @@ jobs:
         env:
           EXPORT_TEAM_ID: ${{ secrets.EXPORT_TEAM_ID }}
       - run: flutter build ipa --release --export-options-plist=exportOptions.plist
+        if: env.SKIP_IOS != 'true'
       - name: Bundle
+        if: env.SKIP_IOS != 'true'
         run: |
           mkdir -p ../dist
           cp build/ios/ipa/*.ipa ../dist/OfflineAudio-ios.ipa
       - uses: actions/upload-artifact@v4
+        if: env.SKIP_IOS != 'true'
         with:
           name: iphone
           path: dist/OfflineAudio-ios.ipa
