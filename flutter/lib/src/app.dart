@@ -162,41 +162,33 @@ class SplashScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
+    const navy = Color(0xFF0E0E1E);
     return Scaffold(
+      backgroundColor: navy,
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 96,
-              height: 96,
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [primary, primary.withValues(alpha: 0.55)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-              child: const Icon(Icons.graphic_eq, size: 56, color: Colors.white),
+            Image.asset(
+              'assets/logo.png',
+              width: 220,
+              fit: BoxFit.contain,
             ),
-            const SizedBox(height: 24),
-            Text(
+            const SizedBox(height: 28),
+            const Text(
               'OfflineAudio',
               style: TextStyle(
                 fontSize: 28,
                 fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.onSurface,
+                color: Colors.white,
               ),
             ),
             const SizedBox(height: 6),
-            Text(
+            const Text(
               'Reproductor offline',
               style: TextStyle(
                 fontSize: 14,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                color: Colors.white54,
               ),
             ),
             const SizedBox(height: 32),
