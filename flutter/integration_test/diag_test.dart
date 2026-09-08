@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
@@ -20,7 +18,7 @@ void main() {
         events.add(e.runtimeType.toString());
       });
 
-      final taskId = await startDownload(
+      await startDownload(
         url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw',
         kind: ContentKind.music,
       );
@@ -28,7 +26,7 @@ void main() {
       for (var i = 0; i < 40; i++) {
         await Future<void>.delayed(const Duration(seconds: 1));
         final active = await activeDownloadCount();
-        if (active == BigInt.zero) break;
+        if (active == 0) break;
       }
 
       final lib = await getLibrary(order: SortOrder.dateDesc);

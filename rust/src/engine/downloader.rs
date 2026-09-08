@@ -7,7 +7,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::time::timeout;
 
 use crate::engine::models::ProbeInfo;
-use crate::engine::process::{child_log, null, pipe, sanitize_url, ensure_yt_dlp};
+use crate::engine::process::{child_log, ensure_yt_dlp, null, pipe, sanitize_url};
 
 const PROBE_TIMEOUT_SECS: u64 = 90;
 

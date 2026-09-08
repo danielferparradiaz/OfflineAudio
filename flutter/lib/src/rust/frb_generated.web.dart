@@ -38,6 +38,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AppDirs dco_decode_app_dirs(dynamic raw);
 
   @protected
+  BinariesStatus dco_decode_binaries_status(dynamic raw);
+
+  @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
@@ -125,6 +128,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   AppDirs sse_decode_app_dirs(SseDeserializer deserializer);
+
+  @protected
+  BinariesStatus sse_decode_binaries_status(SseDeserializer deserializer);
 
   @protected
   bool sse_decode_bool(SseDeserializer deserializer);
@@ -218,6 +224,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_app_dirs(AppDirs self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_binaries_status(
+    BinariesStatus self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_bool(bool self, SseSerializer serializer);

@@ -1,9 +1,6 @@
-import 'dart:async';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
-import 'package:offline_audio_app/src/rust/engine/events.dart';
 import 'package:offline_audio_app/src/rust/engine/models.dart';
 import 'package:offline_audio_app/src/rust/frb_generated.dart';
 
@@ -41,7 +38,7 @@ void main() {
             break;
           }
           final active = await activeDownloadCount();
-          if (active == BigInt.zero) break;
+          if (active == 0) break;
           await Future<void>.delayed(const Duration(seconds: 2));
         }
 

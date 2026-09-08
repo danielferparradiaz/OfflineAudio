@@ -6,20 +6,57 @@ use anyhow::{bail, Context, Result};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-/// Locate `yt-dlp` in PATH.
-pub fn ytdlp_bin() -> Option<PathBuf> {
-    which::which("yt-dlp").ok()
+use crate::engine::paths;
+
+fn in_binary_dir(names: &[&str]) -> Option<PathBuf> {
+    for name in names {
+        let p = paths::bin_dir().join(name);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
 }
 
-/// Locate `ffmpeg` in PATH.
+/// Locate `yt-dlp`: first in the app binary dir (mobile download), then PATH.
+pub fn ytdlp_bin() -> Option<PathBuf> {
+    in_binary_dir(&["yt-dlp", "yt-dlp.exe"]).or_else(|| which::which("yt-dlp").ok())
+}
+
+/// Locate `ffmpeg`: first in the app binary dir (mobile download), then PATH.
 pub fn ffmpeg_bin() -> Option<PathBuf> {
-    which::which("ffmpeg").ok()
+    in_binary_dir(&["ffmpeg", "ffmpeg.exe"]).or_else(|| which::which("ffmpeg").ok())
+}
+
+/// Download an engine binary (yt-dlp/ffmpeg) into the app binary dir.
+/// Used on Android, where binaries are fetched at runtime; the destination is
+/// picked up automatically by `ytdlp_bin`/`ffmpeg_bin`.
+pub async fn download_binary(name: &str, url: &str) -> Result<PathBuf> {
+    let dir = paths::bin_dir();
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("creando dir de binarios {}", dir.display()))?;
+
+    let dest = dir.join(name);
+    let resp = reqwest::get(url).await?.error_for_status()?;
+    let bytes = resp.bytes().await?;
+    if bytes.is_empty() {
+        bail!("descarga de {name} vacía desde {url}");
+    }
+
+    use std::io::Write;
+    let mut file = std::fs::File::create(&dest)?;
+    file.write_all(&bytes)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))?;
+    }
+    Ok(dest)
 }
 
 async fn download_yt_dlp() -> Result<PathBuf> {
-    let target_dir = dirs::home_dir()
-        .context("no home dir")?
-        .join(".local/bin");
+    let target_dir = dirs::home_dir().context("no home dir")?.join(".local/bin");
     std::fs::create_dir_all(&target_dir).ok();
 
     let latest = reqwest::get("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest")
@@ -27,15 +64,30 @@ async fn download_yt_dlp() -> Result<PathBuf> {
         .json::<serde_json::Value>()
         .await?;
 
-    let assets = latest.get("assets").and_then(|a| a.as_array()).cloned().unwrap_or_default();
+    let assets = latest
+        .get("assets")
+        .and_then(|a| a.as_array())
+        .cloned()
+        .unwrap_or_default();
 
     let asset = assets
         .iter()
-        .find(|x| x.get("name").and_then(|v| v.as_str()).map(|s| s.contains("yt-dlp")).unwrap_or(false))
+        .find(|x| {
+            x.get("name")
+                .and_then(|v| v.as_str())
+                .map(|s| s.contains("yt-dlp"))
+                .unwrap_or(false)
+        })
         .ok_or_else(|| anyhow::anyhow!("no yt-dlp asset found"))?;
 
-    let url = asset.get("browser_download_url").and_then(|v| v.as_str()).context("no url")?;
-    let name = asset.get("name").and_then(|v| v.as_str()).context("no name")?;
+    let url = asset
+        .get("browser_download_url")
+        .and_then(|v| v.as_str())
+        .context("no url")?;
+    let name = asset
+        .get("name")
+        .and_then(|v| v.as_str())
+        .context("no name")?;
 
     let dest = target_dir.join(name);
     let resp = reqwest::get(url).await?;
@@ -52,11 +104,11 @@ async fn download_yt_dlp() -> Result<PathBuf> {
         let _ = std::fs::set_permissions(&dest, perms);
         // Remove quarantine attribute on macOS to allow execution
         let _ = std::process::Command::new("xattr")
-            .args(&["-d", "-c", "com.apple.quarantine", dest.to_str().unwrap()])
+            .args(["-d", "-c", "com.apple.quarantine", dest.to_str().unwrap()])
             .output();
     }
 
-    Ok(dest.into())
+    Ok(dest)
 }
 
 pub async fn ensure_yt_dlp() -> Result<PathBuf> {
@@ -66,10 +118,7 @@ pub async fn ensure_yt_dlp() -> Result<PathBuf> {
 
     #[cfg(target_os = "macos")]
     {
-        let common_paths = [
-            "/usr/local/bin/yt-dlp",
-            "/opt/homebrew/bin/yt-dlp",
-        ];
+        let common_paths = ["/usr/local/bin/yt-dlp", "/opt/homebrew/bin/yt-dlp"];
         for path in &common_paths {
             if std::path::Path::new(path).exists() {
                 return Ok(PathBuf::from(path));
@@ -80,13 +129,33 @@ pub async fn ensure_yt_dlp() -> Result<PathBuf> {
     #[cfg(unix)]
     {
         let bin = download_yt_dlp().await?;
-        return Ok(bin);
+        Ok(bin)
     }
 
     #[cfg(windows)]
     {
         bail!("yt-dlp no está instalado y no se pudo descargar automáticamente. Instálalo con: pipx install yt-dlp o descárgalo desde https://github.com/yt-dlp/yt-dlp/releases");
     }
+}
+
+/// Locate or install `ffmpeg`. On desktop it must come from the system; on
+/// mobile a runtime-downloaded binary is picked up from the app bin dir.
+pub async fn ensure_ffmpeg() -> Result<PathBuf> {
+    if let Some(bin) = ffmpeg_bin() {
+        return Ok(bin);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let common_paths = ["/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg"];
+        for path in &common_paths {
+            if std::path::Path::new(path).exists() {
+                return Ok(PathBuf::from(path));
+            }
+        }
+    }
+
+    bail!("ffmpeg no está instalado. En el escritorio instálalo con `brew install ffmpeg` (o tu gestor de paquetes); en móvil descárgalo desde Ajustes > Paquetes.");
 }
 
 /// Validate a URL the user pasted before it ever reaches a child process.

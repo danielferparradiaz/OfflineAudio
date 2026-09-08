@@ -33,9 +33,14 @@ pub fn tmp_dir() -> PathBuf {
     app_home().join("tmp")
 }
 
+/// Directory where runtime-downloaded engine binaries live (mobile).
+pub fn bin_dir() -> PathBuf {
+    app_home().join("bin")
+}
+
 /// Create every directory the app needs, if missing.
 pub fn ensure_dirs() -> Result<()> {
-    for dir in [cache_dir(), thumbs_dir(), tmp_dir()] {
+    for dir in [cache_dir(), thumbs_dir(), tmp_dir(), bin_dir()] {
         std::fs::create_dir_all(&dir)
             .with_context(|| format!("creating directory {}", dir.display()))?;
     }

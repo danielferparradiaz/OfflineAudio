@@ -231,6 +231,69 @@ pub async fn check_ytdlp() -> Result<()> {
     Ok(())
 }
 
+// ---- engine binaries (mobile) -------------------------------------------
+
+#[derive(Serialize, Deserialize)]
+pub struct BinariesStatus {
+    pub yt_dlp_present: bool,
+    pub ffmpeg_present: bool,
+    pub bin_dir: String,
+}
+
+/// Presence of the runtime binaries used by the engine. On mobile the app
+/// downloads them into `bin_dir`; on desktop they live in PATH.
+#[flutter_rust_bridge::frb]
+pub async fn binaries_status() -> Result<BinariesStatus> {
+    Ok(BinariesStatus {
+        yt_dlp_present: crate::engine::process::ytdlp_bin().is_some(),
+        ffmpeg_present: crate::engine::process::ffmpeg_bin().is_some(),
+        bin_dir: crate::engine::paths::bin_dir()
+            .to_string_lossy()
+            .to_string(),
+    })
+}
+
+/// Default download sources for the Android runtime binaries. Overridable via
+/// the `binary.ytdlp_url` / `binary.ffmpeg_url` settings (Ajustes > Paquetes).
+/// Host your own static builds (e.g. a `OfflineAudio-Binaries` release) and
+/// point these URLs there.
+#[cfg(target_os = "android")]
+const DEFAULT_YTDLP_URL: &str =
+    "https://github.com/danielferparradiaz/OfflineAudio-Binaries/releases/latest/download/yt-dlp";
+#[cfg(target_os = "android")]
+const DEFAULT_FFMPEG_URL: &str =
+    "https://github.com/danielferparradiaz/OfflineAudio-Binaries/releases/latest/download/ffmpeg";
+
+/// Download yt-dlp + ffmpeg into the app binary dir. Only implemented for
+/// Android for now (iOS still needs a reliable static binary source — TODO).
+#[flutter_rust_bridge::frb]
+pub async fn download_mobile_binaries() -> Result<()> {
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = engine_ref();
+        anyhow::bail!(
+            "La descarga automática de binarios solo está implementada en Android por ahora (iOS: TODO)."
+        );
+    }
+
+    #[cfg(target_os = "android")]
+    {
+        let db = &engine_ref().db;
+        let yt_url = db
+            .get_setting("binary.ytdlp_url")
+            .await?
+            .unwrap_or_else(|| DEFAULT_YTDLP_URL.to_string());
+        let ff_url = db
+            .get_setting("binary.ffmpeg_url")
+            .await?
+            .unwrap_or_else(|| DEFAULT_FFMPEG_URL.to_string());
+
+        crate::engine::process::download_binary("yt-dlp", &yt_url).await?;
+        crate::engine::process::download_binary("ffmpeg", &ff_url).await?;
+        Ok(())
+    }
+}
+
 // ---- events -------------------------------------------------------------
 
 /// Subscribe to engine events. The returned stream must be listened to as a

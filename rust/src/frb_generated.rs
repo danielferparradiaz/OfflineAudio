@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 648626013;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -855532043;
 
 // Section: executor
 
@@ -148,6 +148,41 @@ fn wire__crate__api__engine_api__app_dirs_impl(
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::engine_api::app_dirs().await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__engine_api__binaries_status_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "binaries_status",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok = crate::api::engine_api::binaries_status().await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -328,6 +363,41 @@ fn wire__crate__api__engine_api__delete_track_impl(
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::engine_api::delete_track(api_id).await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__engine_api__download_mobile_binaries_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "download_mobile_binaries",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || async move {
+                        let output_ok = crate::api::engine_api::download_mobile_binaries().await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -940,6 +1010,20 @@ impl SseDecode for crate::api::engine_api::AppDirs {
     }
 }
 
+impl SseDecode for crate::api::engine_api::BinariesStatus {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_ytDlpPresent = <bool>::sse_decode(deserializer);
+        let mut var_ffmpegPresent = <bool>::sse_decode(deserializer);
+        let mut var_binDir = <String>::sse_decode(deserializer);
+        return crate::api::engine_api::BinariesStatus {
+            yt_dlp_present: var_ytDlpPresent,
+            ffmpeg_present: var_ffmpegPresent,
+            bin_dir: var_binDir,
+        };
+    }
+}
+
 impl SseDecode for bool {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1311,35 +1395,42 @@ fn pde_ffi_dispatcher_primary_impl(
         ),
         2 => wire__crate__api__engine_api__add_to_playlist_impl(port, ptr, rust_vec_len, data_len),
         3 => wire__crate__api__engine_api__app_dirs_impl(port, ptr, rust_vec_len, data_len),
-        4 => wire__crate__api__engine_api__cancel_download_impl(port, ptr, rust_vec_len, data_len),
-        5 => wire__crate__api__engine_api__check_ytdlp_impl(port, ptr, rust_vec_len, data_len),
-        6 => wire__crate__api__engine_api__create_playlist_impl(port, ptr, rust_vec_len, data_len),
-        7 => wire__crate__api__engine_api__delete_playlist_impl(port, ptr, rust_vec_len, data_len),
-        8 => wire__crate__api__engine_api__delete_track_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__engine_api__event_stream_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__engine_api__get_library_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__engine_api__get_setting_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__engine_api__get_track_impl(port, ptr, rust_vec_len, data_len),
-        13 => {
-            wire__crate__api__engine_api__get_ytdlp_status_impl(port, ptr, rust_vec_len, data_len)
-        }
-        14 => wire__crate__api__engine_api__init_app_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__engine_api__list_playlists_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__engine_api__playlist_tracks_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__api__engine_api__probe_url_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__engine_api__record_play_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__engine_api__remove_from_playlist_impl(
+        4 => wire__crate__api__engine_api__binaries_status_impl(port, ptr, rust_vec_len, data_len),
+        5 => wire__crate__api__engine_api__cancel_download_impl(port, ptr, rust_vec_len, data_len),
+        6 => wire__crate__api__engine_api__check_ytdlp_impl(port, ptr, rust_vec_len, data_len),
+        7 => wire__crate__api__engine_api__create_playlist_impl(port, ptr, rust_vec_len, data_len),
+        8 => wire__crate__api__engine_api__delete_playlist_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__engine_api__delete_track_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__engine_api__download_mobile_binaries_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        20 => wire__crate__api__engine_api__rename_playlist_impl(port, ptr, rust_vec_len, data_len),
-        21 => {
+        11 => wire__crate__api__engine_api__event_stream_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__engine_api__get_library_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__engine_api__get_setting_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__engine_api__get_track_impl(port, ptr, rust_vec_len, data_len),
+        15 => {
+            wire__crate__api__engine_api__get_ytdlp_status_impl(port, ptr, rust_vec_len, data_len)
+        }
+        16 => wire__crate__api__engine_api__init_app_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__engine_api__list_playlists_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__engine_api__playlist_tracks_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__engine_api__probe_url_impl(port, ptr, rust_vec_len, data_len),
+        20 => wire__crate__api__engine_api__record_play_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__api__engine_api__remove_from_playlist_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        22 => wire__crate__api__engine_api__rename_playlist_impl(port, ptr, rust_vec_len, data_len),
+        23 => {
             wire__crate__api__engine_api__reorder_playlist_impl(port, ptr, rust_vec_len, data_len)
         }
-        22 => wire__crate__api__engine_api__set_setting_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__api__engine_api__start_download_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__engine_api__set_setting_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__engine_api__start_download_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1378,6 +1469,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::engine_api::AppDirs>
     for crate::api::engine_api::AppDirs
 {
     fn into_into_dart(self) -> crate::api::engine_api::AppDirs {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::engine_api::BinariesStatus {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.yt_dlp_present.into_into_dart().into_dart(),
+            self.ffmpeg_present.into_into_dart().into_dart(),
+            self.bin_dir.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::engine_api::BinariesStatus
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::engine_api::BinariesStatus>
+    for crate::api::engine_api::BinariesStatus
+{
+    fn into_into_dart(self) -> crate::api::engine_api::BinariesStatus {
         self
     }
 }
@@ -1644,6 +1757,15 @@ impl SseEncode for crate::api::engine_api::AppDirs {
         <String>::sse_encode(self.cache, serializer);
         <String>::sse_encode(self.thumbs, serializer);
         <String>::sse_encode(self.tmp, serializer);
+    }
+}
+
+impl SseEncode for crate::api::engine_api::BinariesStatus {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.yt_dlp_present, serializer);
+        <bool>::sse_encode(self.ffmpeg_present, serializer);
+        <String>::sse_encode(self.bin_dir, serializer);
     }
 }
 

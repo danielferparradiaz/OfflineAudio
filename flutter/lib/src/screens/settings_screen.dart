@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
+import 'package:offline_audio_app/src/settings.dart';
+import 'package:offline_audio_app/src/widgets/color_picker.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -13,6 +15,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _ytdlpMessage;
   bool _checking = false;
   AppDirs? _dirs;
+  BinariesStatus? _bins;
+  bool _downloading = false;
+  final _ytUrlController = TextEditingController();
+  final _ffmpegUrlController = TextEditingController();
 
   @override
   void initState() {
@@ -20,22 +26,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _ytUrlController.dispose();
+    _ffmpegUrlController.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     try {
       final ytdlp = await getYtdlpStatus();
       final dirs = await appDirs();
+      final bins = await binariesStatus();
+      final ytUrl = await getSetting(key: 'binary.ytdlp_url');
+      final ffUrl = await getSetting(key: 'binary.ffmpeg_url');
       if (mounted) {
         setState(() {
           _ytdlp = ytdlp;
           _dirs = dirs;
+          _bins = bins;
+          if (ytUrl != null) _ytUrlController.text = ytUrl;
+          if (ffUrl != null) _ffmpegUrlController.text = ffUrl;
         });
       }
     } catch (e) {
-      // Error al obtener estado de yt-dlp o directorios - muestra mensaje
       if (mounted) {
-        setState(() {
-          _ytdlpMessage = 'Error cargando configuración: ${e.toString()}';
-        });
+        setState(() => _ytdlpMessage = 'Error cargando configuración: ${e.toString()}');
       }
     }
   }
@@ -62,21 +78,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _downloadBinaries() async {
+    setState(() => _downloading = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await downloadMobileBinaries();
+      final status = await binariesStatus();
+      if (mounted) setState(() => _bins = status);
+      messenger.showSnackBar(const SnackBar(content: Text('Paquetes instalados')));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('No se pudo descargar: $e')));
+    } finally {
+      if (mounted) setState(() => _downloading = false);
+    }
+  }
+
+  Future<void> _pickAccentColor() async {
+    final settings = SettingsScope.of(context);
+    final current = Color(settings.accent);
+    final picked = await showColorPickerDialog(
+      context,
+      title: 'Color de los botones',
+      initial: current,
+    );
+    if (picked != null) settings.setAccent(picked.toARGB32());
+  }
+
+  Future<void> _pickBackgroundColor() async {
+    final settings = SettingsScope.of(context);
+    final current =
+        settings.hasCustomBackground ? Color(settings.background!) : Colors.grey;
+    final picked = await showColorPickerDialog(
+      context,
+      title: 'Color de fondo',
+      initial: current,
+    );
+    if (picked != null) settings.setBackground(picked.toARGB32());
+  }
+
   @override
   Widget build(BuildContext context) {
+    final settings = SettingsScope.of(context);
     return Scaffold(
       appBar: AppBar(title: const Text('Ajustes')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text(
-                'Aplicación',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ),
+            _SectionTitle('Apariencia'),
+            _buildAppearance(settings),
+            const Divider(),
+            _SectionTitle('Paquetes del motor'),
+            _buildBinaries(settings),
+            const Divider(),
+            _SectionTitle('Aplicación'),
             ListTile(
               leading: const Icon(Icons.download_for_offline_outlined),
               title: const Text('Comprobar yt-dlp'),
@@ -91,23 +146,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       icon: const Icon(Icons.refresh),
                       onPressed: _checkYtdlp,
                     ),
-          ),
-          if (_ytdlpMessage != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                _ytdlpMessage!,
-                style: TextStyle(color: Theme.of(context).colorScheme.primary),
-              ),
             ),
+            if (_ytdlpMessage != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  _ytdlpMessage!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.primary),
+                ),
+              ),
             const Divider(),
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text(
-                'Almacenamiento',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ),
+            _SectionTitle('Almacenamiento'),
             if (_dirs != null) ...[
               ListTile(
                 leading: const Icon(Icons.folder),
@@ -129,12 +178,149 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ListTile(
               leading: const Icon(Icons.info_outline),
               title: const Text('Acerca de'),
-              subtitle: const Text('OfflineAudio 0.1 · uso personal.\n'
+              subtitle: const Text('OfflineAudio 1.0 · uso personal.\n'
                   'Uso exclusivo de contenidos que tienes derecho a descargar.'),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildAppearance(SettingsController settings) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: SegmentedButton<ThemeMode>(
+            segments: const [
+              ButtonSegment(
+                value: ThemeMode.light,
+                icon: Icon(Icons.light_mode_outlined),
+                label: Text('Claro'),
+              ),
+              ButtonSegment(
+                value: ThemeMode.dark,
+                icon: Icon(Icons.dark_mode_outlined),
+                label: Text('Oscuro'),
+              ),
+              ButtonSegment(
+                value: ThemeMode.system,
+                icon: Icon(Icons.brightness_auto_outlined),
+                label: Text('Sistema'),
+              ),
+            ],
+            selected: {settings.themeMode},
+            onSelectionChanged: (s) => settings.setThemeMode(s.first),
+            showSelectedIcon: false,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ListTile(
+          leading: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: Color(settings.accent),
+              shape: BoxShape.circle,
+              border: Border.all(color: Theme.of(context).colorScheme.outline),
+            ),
+          ),
+          title: const Text('Color de los botones'),
+          subtitle: const Text('Acento principal de la app'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: _pickAccentColor,
+        ),
+        ListTile(
+          leading: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: settings.hasCustomBackground
+                  ? Color(settings.background!)
+                  : null,
+              shape: BoxShape.circle,
+              border: Border.all(color: Theme.of(context).colorScheme.outline),
+            ),
+          ),
+          title: const Text('Color de fondo'),
+          subtitle: Text(settings.hasCustomBackground
+              ? 'Personalizado'
+              : 'Predeterminado según el modo'),
+          trailing: settings.hasCustomBackground
+              ? IconButton(
+                  icon: const Icon(Icons.settings_backup_restore),
+                  tooltip: 'Restablecer',
+                  onPressed: () => settings.setBackground(null),
+                )
+              : const Icon(Icons.chevron_right),
+          onTap: _pickBackgroundColor,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBinaries(SettingsController settings) {
+    final b = _bins;
+    final yt = b?.ytDlpPresent ?? false;
+    final ff = b?.ffmpegPresent ?? false;
+    final status = b == null
+        ? 'Revisando…'
+        : 'yt-dlp ${yt ? '✓' : '✗'} · ffmpeg ${ff ? '✓' : '✗'}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ListTile(
+          leading: const Icon(Icons.build_outlined),
+          title: const Text('Binarios yt-dlp / ffmpeg'),
+          subtitle: Text(status),
+          trailing: _downloading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : FilledButton.tonalIcon(
+                  onPressed: _downloadBinaries,
+                  icon: const Icon(Icons.download, size: 18),
+                  label: const Text('Descargar'),
+                ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            'En Android el motor descarga estos binarios a la carpeta de la app.\n'
+            'Puedes apuntar a tus propios builds estáticos (URL directa al binario):',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: TextField(
+            controller: _ytUrlController,
+            decoration: const InputDecoration(
+              labelText: 'URL de yt-dlp (opcional)',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (v) =>
+                setSetting(key: 'binary.ytdlp_url', value: v.trim()),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: TextField(
+            controller: _ffmpegUrlController,
+            decoration: const InputDecoration(
+              labelText: 'URL de ffmpeg (opcional)',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (v) =>
+                setSetting(key: 'binary.ffmpeg_url', value: v.trim()),
+          ),
+        ),
+      ],
     );
   }
 
@@ -144,5 +330,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!y.present) return 'No instalado';
     final v = y.version ?? 'desconocida';
     return 'v$v · ${y.outdated ? 'desactualizado' : 'actualizado'}';
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          title,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+      ),
+    );
   }
 }

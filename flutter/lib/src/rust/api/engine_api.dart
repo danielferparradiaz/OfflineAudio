@@ -104,6 +104,16 @@ Future<YtdlpInfo> getYtdlpStatus() =>
 /// `YtdlpStatus` event.
 Future<void> checkYtdlp() => RustLib.instance.api.crateApiEngineApiCheckYtdlp();
 
+/// Presence of the runtime binaries used by the engine. On mobile the app
+/// downloads them into `bin_dir`; on desktop they live in PATH.
+Future<BinariesStatus> binariesStatus() =>
+    RustLib.instance.api.crateApiEngineApiBinariesStatus();
+
+/// Download yt-dlp + ffmpeg into the app binary dir. Only implemented for
+/// Android for now (iOS still needs a reliable static binary source — TODO).
+Future<void> downloadMobileBinaries() =>
+    RustLib.instance.api.crateApiEngineApiDownloadMobileBinaries();
+
 /// Subscribe to engine events. The returned stream must be listened to as a
 /// native Dart stream (`RustStreamSink`).
 Stream<Event> eventStream() =>
@@ -135,6 +145,31 @@ class AppDirs {
           cache == other.cache &&
           thumbs == other.thumbs &&
           tmp == other.tmp;
+}
+
+class BinariesStatus {
+  final bool ytDlpPresent;
+  final bool ffmpegPresent;
+  final String binDir;
+
+  const BinariesStatus({
+    required this.ytDlpPresent,
+    required this.ffmpegPresent,
+    required this.binDir,
+  });
+
+  @override
+  int get hashCode =>
+      ytDlpPresent.hashCode ^ ffmpegPresent.hashCode ^ binDir.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BinariesStatus &&
+          runtimeType == other.runtimeType &&
+          ytDlpPresent == other.ytDlpPresent &&
+          ffmpegPresent == other.ffmpegPresent &&
+          binDir == other.binDir;
 }
 
 class YtdlpInfo {

@@ -3,7 +3,7 @@
 use anyhow::Result;
 
 use crate::engine::events::Event;
-use crate::engine::process::{child_log, null, pipe, ensure_yt_dlp};
+use crate::engine::process::{child_log, ensure_yt_dlp, null, pipe};
 use crate::engine::AppEngine;
 use crate::engine::{SETTING_YTDLP_CHECKED_AT, SETTING_YTDLP_VERSION};
 

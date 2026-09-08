@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:offline_audio_app/src/app_model.dart';
@@ -53,12 +54,40 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final tracks = model.library;
 
     return SafeArea(
-      child: Column(
+      child: Stack(
         children: [
-          _buildHeader(context),
-          _buildSearchField(),
-          Expanded(child: _buildList(context, model, tracks)),
+          Positioned.fill(child: _buildList(context, model, tracks)),
+          _buildFrostedTop(context),
         ],
+      ),
+    );
+  }
+
+  /// Frosted header + search that float above the scrolling list. Music flows
+  /// underneath and the translucent surface lets the movement show through.
+  Widget _buildFrostedTop(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24)),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: scheme.surface.withValues(alpha: 0.72),
+            border: Border(
+              bottom: BorderSide(
+                color: scheme.outlineVariant.withValues(alpha: 0.4),
+                width: 0.5,
+              ),
+            ),
+          ),
+          child: Column(
+            children: [
+              _buildHeader(context),
+              _buildSearchField(context),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -120,15 +149,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Widget _buildSearchField() {
+  Widget _buildSearchField(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
       child: TextField(
         controller: _searchController,
         decoration: InputDecoration(
           prefixIcon: const Icon(Icons.search),
           hintText: 'Buscar en la biblioteca',
-          border: const OutlineInputBorder(),
+          filled: true,
+          fillColor: Theme.of(context)
+              .colorScheme
+              .onSurface
+              .withValues(alpha: 0.08),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(26),
+            borderSide: BorderSide.none,
+          ),
           suffixIcon: _query.isEmpty
               ? null
               : IconButton(
@@ -167,6 +204,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return const _EmptyLibrary();
     }
     return ListView(
+      // Start below the floating frosted header + search.
+      padding: const EdgeInsets.only(top: 130, bottom: 8),
       children: [
         if (recent.isNotEmpty) ...[
           const _SectionHeader('Reciente'),

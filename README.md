@@ -1,135 +1,92 @@
 # OfflineAudio
 
-Reproductor de audio offline multi-plataforma (macOS prioritario, luego Windows y Linux).
+Reproductor de audio offline multi-plataforma. Descarga audio desde YouTube,
+Instagram y otras fuentes vía `yt-dlp`, lo convierte a **Opus** con `ffmpeg`, lo
+guarda en una biblioteca local (SQLite) y lo reproduce sin conexión, agrupado en
+playlists.
 
-Descarga audio desde YouTube, Instagram y otras fuentes vía `yt-dlp`, lo convierte a
-**Opus** con `ffmpeg`, lo guarda en una biblioteca local (SQLite) y permite reproducirlo
-sin conexión, agrupado en playlists.
+Stack: motor Rust (`rust/`) + UI Flutter (`flutter/`) con `flutter_rust_bridge`.
 
-## Arquitectura
+## Descarga
 
-| Capa      | Stack                                                        |
-| --------- | ------------------------------------------------------------ |
-| Motor     | Rust (`rust/`) — descarga, conversión, eventos, SQLite       |
-| UI        | Flutter (`flutter/`) — `offline_audio_app`                   |
-| Puente    | `flutter_rust_bridge` v2 (cargokit)                          |
-| Reproducción | `media_kit` (lado Flutter)                                |
+Los instaladores se generan automáticamente y se publican en la pestaña
+**[Releases](https://github.com/danielferparradiaz/OfflineAudio/releases)** de
+este repo al crear un tag `v*`.
 
-```
-URL → yt-dlp ──(stream)──▶ ffmpeg ──▶ cache/tracks/<hash>.opus ──▶ SQLite ──▶ UI
-       └────────(fallback a disco)────────▶ ffmpeg ──▶ caching ─┘
-```
+| Dispositivo | Archivo | Cómo instalar |
+| ----------- | ------- | ------------- |
+| **macOS** (Apple Silicon / Intel) | `OfflineAudio-macos-<versión>.zip` | Descomprimir y arrastrar `OfflineAudio.app` a Aplicaciones |
+| **Windows** (10/11) | `OfflineAudio-windows-<versión>.zip` | Descomprimir y ejecutar `OfflineAudio.exe` |
+| **iPhone / iPad** | `OfflineAudio-ios-<versión>.ipa` | Instalar vía TestFlight o tu distribuidor |
+| **Android** | `OfflineAudio-android-<versión>-arm64-v8a.apk` (y variantes) + `.aab` | Permitir «orígenes desconocidos» e instalar el APK de tu arquitectura |
 
-- Estrategia A: `yt-dlp -o -` (stdout) → `pipe:0` de ffmpeg.
-- Estrategia B (fallback): descarga temporal completa antes de convertir.
-- Deduplicación por `source_id` (`{extractor}:{video_id}`): no se descarga dos veces.
-- Los `.opus` se guardan con nombre hash (`sha256(source_id)[..16]`).
-- Duración/velocidad/ETA se muestran vía eventos en tiempo real.
+> **Motor en móvil:** en Android el motor descarga los binarios `yt-dlp` y
+> `ffmpeg` la primera vez (te lo pregunta al abrir la app). Puedes gestionarlos
+> en **Ajustes → Paquetes del motor**. En iOS la descarga automática aún es un
+> TODO (ver Roadmap). En el escritorio necesitas los binarios en `PATH`:
+> `brew install yt-dlp ffmpeg` (macOS) / `winget install yt-dlp.yt-dlp` y
+> `winget install Gyan.FFmpeg` (Windows).
 
-## Requisitos
+## Roadmap
 
-- Rust (edición 2021), Flutter stable, `yt-dlp`, `ffmpeg`.
-- macOS: `brew install yt-dlp ffmpeg` (los binarios deben estar en `PATH`).
-- `flutter_rust_bridge_codegen` (solo para regenerar bindings tras cambios en `rust/src/api`).
+- [ ] **Apple Watch (reloj)** — soporte para ver y controlar el reproductor desde
+      la muñeca (`voo_watch`), con estado de reproducción y cola.
+- [ ] **iOS** — fuente fiable de binarios estáticos del motor (descarga automática
+      igual que Android; hoy solo se soporta en Android).
+- [ ] Instaladores nativos (DMG para macOS, MSIX/NSIS para Windows).
 
-## Desarrollo
+## Desarrollar
 
 ```sh
-# regenerar bindings FRB (tras editar rust/src/api/*.rs)
+# Regenerar bindings FRB tras tocar rust/src/api/*.rs
 cd flutter && flutter_rust_bridge_codegen generate
 
-# tests del motor
+# Tests del motor
 cd rust && cargo test
 
-# build macos (debug)
-cd flutter && flutter build macos --debug
+# Lint de ambos lados (lo que exige el CI)
+cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
+cd flutter && flutter analyze
+
+# Builds
+cd flutter && flutter build macos --release    # macOS
+cd flutter && flutter build windows --release  # Windows
+cd flutter && flutter build appbundle --release  # Android (.aab)
+cd flutter && flutter build apk --release --split-per-abi  # Android (APKs)
+cd flutter && flutter build ipa --release      # iOS (requiere firma)
 ```
 
-El esquema SQLite vive en `rust/migrations/0001_init.sql` (migraciones automáticas con sqlx).
+## Releases y firma
 
-## Cómo probar en cada OS
+El workflow de release construye todos los artefactos al crear un tag `v*` y los
+adjunta a la release. Para iOS/Android con firma real necesitas configurar estos
+**secrets de GitHub** (`Settings → Secrets and variables → Actions`):
 
-### macOS (plataforma principal)
+| Secret | Uso |
+| ------ | --- |
+| `CERTIFICATE_P12_BASE64` | Certificado de distribución de Apple en base64 (`base64 -i cert.p12`) |
+| `CERTIFICATE_PASSWORD` | Contraseña del `.p12` |
+| `PROVISIONING_PROFILES_BASE64` | Perfiles de provisión en base64 (tar o zip) para el bundle `com.offlineaudio.app` |
+| `KEYCHAIN_PASSWORD` | Contraseña temporal del keychain del runner |
+| `EXPORT_TEAM_ID` | Team ID de Apple (10 caracteres) |
+| `KEYSTORE_BASE64` | Android upload keystore en base64 (`base64 -i release.jks`) |
+| `KEYSTORE_PASSWORD` / `KEY_ALIAS` / `KEY_PASSWORD` | Credenciales del keystore de Android |
 
-```sh
-# 1. Dependencias del sistema
-brew install yt-dlp ffmpeg            # runtime de descarga/conversión
-brew install --cask flutter           # o https://flutter.dev/docs/get-started/install
-rustup install stable                 # si no tienes Rust: https://rustup.rs
-
-# 2. Tests y build
-cd rust && cargo test                 # motor
-cd ../flutter && flutter pub get
-flutter analyze && flutter test       # linter + tests de widgets
-
-# 3. Probar la app
-flutter run -d macos                  # o: flutter build macos --debug
-# abrir manualmente: open build/macos/Build/Products/Debug/OfflineAudio.app
-```
-
-### Windows
-
-```powershell
-# 1. Dependencias del sistema
-winget install yt-dlp.yt-dlp
-winget install Gyan.FFmpeg            # asegúrate de que ambos quedan en PATH
-winget install Rustlang.Rustup && rustup install stable
-# Flutter: https://docs.flutter.dev/get-started/install/windows
-# Requiere Visual Studio con "Desktop development with C++".
-
-# 2. Tests y build
-cd rust; cargo test
-cd ..\flutter; flutter pub get; flutter analyze; flutter test
-
-# 3. Probar la app
-flutter run -d windows
-```
-
-### Linux
-
-```sh
-# 1. Dependencias del sistema (Debian/Ubuntu)
-sudo apt install yt-dlp ffmpeg \
-  clang cmake ninja-build pkg-config libgtk-3-dev
-rustup install stable
-# Flutter: https://docs.flutter.dev/get-started/install/linux
-
-# 2. Tests y build
-cd rust && cargo test
-cd ../flutter && flutter pub get && flutter analyze && flutter test
-
-# 3. Probar la app
-flutter run -d linux
-```
-
-### Prueba de humo (cualquier OS)
-
-1. Arranca la app y abre **Biblioteca → «+»** y pega una URL de YouTube/Instagram.
-2. Pulsa **Analizar** → comprueba que aparece título/artista/duración → **Descargar**.
-3. Observa el progreso en la pestaña **Descargas** (porcentaje, velocidad, ETA).
-4. Vuelve a **Biblioteca** y reproduce el track: pausa/continúa y arrastra el slider.
-5. Crea una **playlist**, añade el track (menú ⋮ → «Añadir a playlist»),
-   reordénala arrastrando y reprodúcela completa.
-6. En **Ajustes** comprueba el estado de `yt-dlp` y las rutas de datos.
-
-Si cambias algo en `rust/src/api/`, recuerda regenerar los bindings:
-`cd flutter && flutter_rust_bridge_codegen generate`.
+Si no los pones, el workflow sigue generando los artefactos de escritorio y un
+Android APK firmado con la clave de debug.
 
 ## Datos
 
-- Linux/macOS/Windows: directorio de configuración del usuario
-  (`~/Library/Application Support/OfflineAudio` en macOS; `%APPDATA%\OfflineAudio` en Windows).
-  En macOS, una app firmada sin notarizar corre en sandbox → los datos van al container
-  de la app (`~/Library/Containers/com.offlineaudio.offlineAudio/...`).
+- Biblioteca `.opus` + miniaturas + base de datos SQLite en el directorio de
+  configuración del usuario (macOS: `~/Library/Application Support/OfflineAudio`).
+- En Android los binarios del motor se guardan en la carpeta privada de la app
+  (`.../app_flutter`), descargables desde **Ajustes → Paquetes del motor** con
+  URLs configurables (`binary.ytdlp_url`, `binary.ffmpeg_url`) por si quieres
+  apuntar a tus propios builds estáticos.
 
 ## Legal
 
-Este software está pensado **exclusivamente para uso personal** con contenidos que tienes
-derecho a descargar. No facilita la descarga de material protegido sin autorización y
-cumple con los [términos de uso de YouTube](https://www.youtube.com/t/terms) y las webs
-soportadas. Respeta los derechos de autor: descarga solo lo que puedas reproducir y
-distribuir legalmente.
-
-## Sin notas de copyright / licencia
-
-Por definir. El proyecto es privado hasta su liberación.
+Software de **uso personal** con contenidos que tienes derecho a descargar. No
+facilita la descarga de material protegido sin autorización y respeta los
+[términos de uso de YouTube](https://www.youtube.com/t/terms) y las webs
+soportadas. Descarga solo lo que puedas reproducir y distribuir legalmente.
