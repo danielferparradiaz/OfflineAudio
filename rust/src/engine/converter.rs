@@ -52,15 +52,14 @@ fn common_args(kind: &ContentKind, meta: &AudioMeta) -> Vec<String> {
     args
 }
 
-/// ffmpeg command reading media from stdin (`pipe:0`). Used by the streaming
-/// strategy.
-pub fn convert_from_stdin(
+/// Pure command construction (no binary resolution), split out so unit tests
+/// can assert on the command without ffmpeg being installed on the runner.
+fn stream_command(
+    bin: &str,
     kind: &ContentKind,
     output: &Path,
     meta: &AudioMeta,
-) -> Result<tokio::process::Command> {
-    let bin =
-        ffmpeg_bin().context("ffmpeg no está instalado. Instálalo con: brew install ffmpeg")?;
+) -> tokio::process::Command {
     let mut args = vec!["-i".to_string(), "pipe:0".to_string()];
     args.extend(common_args(kind, meta));
     args.extend([
@@ -71,7 +70,19 @@ pub fn convert_from_stdin(
     ]);
     let mut cmd = tokio::process::Command::new(bin);
     cmd.args(args).kill_on_drop(false);
-    Ok(cmd)
+    cmd
+}
+
+/// ffmpeg command reading media from stdin (`pipe:0`). Used by the streaming
+/// strategy.
+pub fn convert_from_stdin(
+    kind: &ContentKind,
+    output: &Path,
+    meta: &AudioMeta,
+) -> Result<tokio::process::Command> {
+    let bin =
+        ffmpeg_bin().context("ffmpeg no está instalado. Instálalo con: brew install ffmpeg")?;
+    Ok(stream_command(&bin.to_string_lossy(), kind, output, meta))
 }
 
 /// ffmpeg command converting a local file (strategy B fallback).
@@ -159,12 +170,14 @@ mod tests {
     #[test]
     fn stream_cmd_has_pipe_input() {
         let kind = ContentKind::Music;
-        let cmd = convert_from_stdin(
+        // Build the command with a fixed program name so this unit test does
+        // not require ffmpeg to be installed on the machine running it.
+        let cmd = stream_command(
+            "ffmpeg",
             &kind,
             std::path::Path::new("/x.opus"),
             &AudioMeta::default(),
-        )
-        .unwrap();
+        );
         // The program path must be ffmpeg; argument correctness is covered by
         // the ffmpeg integration note in the README. Here we just check the
         // constructed command points at ffmpeg.
