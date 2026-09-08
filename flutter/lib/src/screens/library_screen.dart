@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/rust/engine/models.dart';
-import 'package:offline_audio_app/src/screens/add_screen.dart';
 import 'package:offline_audio_app/src/search/youtube_search.dart';
 
 class LibraryScreen extends StatefulWidget {
@@ -140,8 +139,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
           Padding(
             padding: const EdgeInsets.all(32),
             child: Text(
-              'Sin resultados para «${_activeQuery ?? ''}»\nPrueba con otra '
-              'búsqueda.',
+              'Sin resultados para «${_activeQuery ?? ''}»\n'
+              'Prueba con el nombre del artista, canción o una palabra clave.',
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.white54),
             ),
@@ -225,24 +224,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 child: Text('Título Z-A'),
               ),
             ],
-          ),
-          IconButton.filled(
-            icon: const Icon(Icons.add),
-            tooltip: 'Añadir URL',
-            onPressed: () async {
-              final taskId = await Navigator.of(context).push<String>(
-                MaterialPageRoute(builder: (_) => const AddScreen()),
-              );
-              if (context.mounted && taskId != null) {
-                final short =
-                    taskId.length <= 8 ? taskId : taskId.substring(0, 8);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                      content: Text(
-                          'Descarga iniciada ($short). Ver pestaña Descargas.')),
-                );
-              }
-            },
           ),
         ],
       ),
