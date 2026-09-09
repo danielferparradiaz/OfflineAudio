@@ -53,6 +53,11 @@ class AppModel extends ChangeNotifier {
   List<Track> _queue = [];
   bool _playingPlaylist = false;
 
+  /// True while the "random playlist based on library" shuffle session is
+  /// active; the player bar shows a subtle "View playlist" label under the
+  /// track name.
+  bool _shuffleSession = false;
+
   Track? get currentTrack => _currentTrack;
 
   // Avance de un resultado de búsqueda (stream remoto, fuera de la
@@ -284,6 +289,7 @@ class AppModel extends ChangeNotifier {
     _currentTrack = track;
     _queue = [track];
     _playingPlaylist = false;
+    _shuffleSession = false;
     _position = Duration.zero;
     await _player!.open(mk.Media(track.filePath));
     notifyListeners();
@@ -299,6 +305,26 @@ class AppModel extends ChangeNotifier {
     _queue = tracks;
     _currentTrack = tracks.first;
     _playingPlaylist = true;
+    _shuffleSession = false;
+    _position = Duration.zero;
+    await _player!.open(
+      mk.Playlist(tracks.map((t) => mk.Media(t.filePath)).toList()),
+    );
+    notifyListeners();
+    _recordPlay(tracks.first);
+  }
+
+  /// Play the whole library as a randomly shuffled playlist (media_kit
+  /// auto-advances through the shuffled queue).
+  Future<void> shuffleLibrary() async {
+    if (_library.isEmpty) return;
+    final tracks = List<Track>.of(_library)..shuffle();
+    _ensurePlayer();
+    _clearPreview();
+    _queue = tracks;
+    _currentTrack = tracks.first;
+    _playingPlaylist = true;
+    _shuffleSession = true;
     _position = Duration.zero;
     await _player!.open(
       mk.Playlist(tracks.map((t) => mk.Media(t.filePath)).toList()),
@@ -321,6 +347,7 @@ class AppModel extends ChangeNotifier {
     _currentTrack = null;
     _queue = [];
     _playingPlaylist = false;
+    _shuffleSession = false;
     _previewId = id;
     _previewTitle = title;
     _previewArtist = artist;
@@ -373,6 +400,8 @@ class AppModel extends ChangeNotifier {
   bool get isPlaying => _playing || (_player?.state.playing ?? false);
 
   bool get isPlayingPlaylist => _playingPlaylist;
+
+  bool get isShuffleSession => _shuffleSession;
 
   @override
   void dispose() {

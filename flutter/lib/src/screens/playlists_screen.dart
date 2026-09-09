@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/rust/engine/models.dart';
-import 'package:offline_audio_app/src/screens/playlist_detail_screen.dart';
+import 'package:offline_audio_app/src/screens/screens.dart';
 
 class PlaylistsScreen extends StatelessWidget {
   const PlaylistsScreen({super.key});

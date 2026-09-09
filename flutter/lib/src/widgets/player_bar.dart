@@ -2,8 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:offline_audio_app/src/app_model.dart';
-import 'package:offline_audio_app/src/screens/preview_video_screen.dart';
-import 'package:offline_audio_app/src/screens/video_player_screen.dart';
+import 'package:offline_audio_app/src/screens/screens.dart';
 
 String _fmtClock(Duration d) {
   final h = d.inHours;
@@ -115,6 +114,13 @@ class PlayerBar extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       maxLines: 1,
                     ),
+                    if (!preview && model.isShuffleSession)
+                      Text(
+                        'View playlist',
+                        style: TextStyle(color: subtle, fontSize: 11),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
                     if (subtitle.isNotEmpty)
                       Text(
                         subtitle,

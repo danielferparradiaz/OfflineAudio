@@ -3,12 +3,9 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
-import 'package:offline_audio_app/src/screens/library_screen.dart';
-import 'package:offline_audio_app/src/screens/downloads_screen.dart';
-import 'package:offline_audio_app/src/screens/playlists_screen.dart';
+import 'package:offline_audio_app/src/screens/screens.dart';
 import 'package:offline_audio_app/src/settings.dart';
-import 'package:offline_audio_app/src/widgets/player_bar.dart';
-import 'package:offline_audio_app/src/widgets/settings_drawer.dart';
+import 'package:offline_audio_app/src/widgets/widgets.dart';
 
 /// Single appearance settings instance used by the whole app.
 final SettingsController appSettings = SettingsController();

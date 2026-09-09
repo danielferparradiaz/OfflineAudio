@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/settings.dart';
-import 'package:offline_audio_app/src/widgets/color_picker.dart';
+import 'package:offline_audio_app/src/widgets/widgets.dart';
 
 class SettingsDrawerContent extends StatefulWidget {
   const SettingsDrawerContent({super.key});
