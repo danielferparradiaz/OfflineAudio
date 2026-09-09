@@ -22,7 +22,7 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
-  SortOrder _order = SortOrder.dateDesc;
+  final SortOrder _order = SortOrder.dateDesc;
   final _searchController = TextEditingController();
 
   /// Search state. While `null`, the library list is shown; otherwise we show
@@ -246,11 +246,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
         SnackBar(content: Text('No se pudo iniciar la descarga: $e')),
       );
     }
-  }
-
-  void _onOrderSelected(SortOrder value) {
-    setState(() => _order = value);
-    _serveLibrary();
   }
 
   /// Reproduce un track; si es vídeo, abre directamente el reproductor de

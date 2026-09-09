@@ -69,7 +69,7 @@ class PlayerBar extends StatelessWidget {
           width: 36,
           height: 36,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => Icon(
+          errorBuilder: (_, _, _) => Icon(
             isVideo ? Icons.videocam : Icons.music_note,
             color: subtle,
           ),
