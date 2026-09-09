@@ -112,6 +112,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context,
       title: 'Color de fondo',
       initial: current,
+      swatches: kGrayscaleSwatches,
     );
     if (picked != null) settings.setBackground(picked.toARGB32());
   }
@@ -267,6 +268,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final status = b == null
         ? 'Revisando…'
         : 'yt-dlp ${yt ? '✓' : '✗'} · ffmpeg ${ff ? '✓' : '✗'}';
+    final installed = yt && ff;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -281,44 +283,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : FilledButton.tonalIcon(
-                  onPressed: _downloadBinaries,
+                  onPressed: installed ? null : _downloadBinaries,
                   icon: const Icon(Icons.download, size: 18),
-                  label: const Text('Descargar'),
+                  label: Text(installed ? 'Instalados' : 'Descargar'),
                 ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Text(
-            'En Android el motor descarga estos binarios a la carpeta de la app.\n'
-            'Puedes apuntar a tus propios builds estáticos (URL directa al binario):',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          child: TextField(
-            controller: _ytUrlController,
-            decoration: const InputDecoration(
-              labelText: 'URL de yt-dlp (opcional)',
-              isDense: true,
-              border: OutlineInputBorder(),
-            ),
-            onChanged: (v) =>
-                setSetting(key: 'binary.ytdlp_url', value: v.trim()),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-          child: TextField(
-            controller: _ffmpegUrlController,
-            decoration: const InputDecoration(
-              labelText: 'URL de ffmpeg (opcional)',
-              isDense: true,
-              border: OutlineInputBorder(),
-            ),
-            onChanged: (v) =>
-                setSetting(key: 'binary.ffmpeg_url', value: v.trim()),
-          ),
         ),
       ],
     );

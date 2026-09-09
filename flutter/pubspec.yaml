@@ -42,7 +42,10 @@ dependencies:
   freezed_annotation: ^3.1.0
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
-  media_kit_libs_audio: ^1.0.7
+  # Incluye decodificadores de VÍDEO + audio (superset de
+  # media_kit_libs_audio). Obligatorio para que VideoController funcione;
+  # con solo libs_audio no hay decodificadores H264 y la pantalla sale negra.
+  media_kit_libs_video: ^1.0.7
   shared_preferences: ^2.5.4
   youtube_explode_dart: 3.1.0
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:offline_audio_app/src/app_model.dart';
@@ -24,6 +26,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     if (_initialized) return;
     _initialized = true;
     final model = AppModelProvider.of(context);
+    // La pantalla garantiza su propia reproducción: si el player compartido
+    // no viene ya con este track, lo pone en marcha (esto también crea el
+    // player si aún no existe, de forma síncrona antes del primer await).
+    if (model.currentTrack?.id != widget.track.id) {
+      unawaited(model.playTrack(widget.track));
+    }
     final player = model.player;
     if (player != null) {
       _controller = VideoController(player);

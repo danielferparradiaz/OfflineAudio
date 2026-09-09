@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/rust/engine/models.dart';
+import 'package:offline_audio_app/src/screens/video_player_screen.dart';
 
 String _shortId(String taskId) =>
     taskId.length <= 8 ? taskId : taskId.substring(0, 8);
@@ -36,6 +37,8 @@ class DownloadsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final model = AppModelProvider.of(context);
+    final subtle =
+        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6);
     final progress = model.downloads;
     final errors = model.downloadErrors;
     final completed = model.completed;
@@ -62,7 +65,7 @@ class DownloadsScreen extends StatelessWidget {
                   Expanded(
                     child: Text(
                       info,
-                      style: const TextStyle(color: Colors.white70),
+                      style: TextStyle(color: subtle),
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -76,11 +79,11 @@ class DownloadsScreen extends StatelessWidget {
               ),
             ),
           if (!hasAny)
-            const Expanded(
+            Expanded(
               child: Center(
                 child: Text(
                   'No hay descargas activas',
-                  style: TextStyle(color: Colors.white54),
+                  style: TextStyle(color: subtle),
                 ),
               ),
             )
@@ -154,14 +157,15 @@ class DownloadsScreen extends StatelessWidget {
                     );
                   }),
                   if (completed.isNotEmpty) ...[
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(8, 12, 8, 4),
+                    Padding(
+                      padding:
+                          const EdgeInsets.fromLTRB(8, 12, 8, 4),
                       child: Text(
                         'Completadas',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white70,
+                          color: subtle,
                         ),
                       ),
                     ),
@@ -197,9 +201,19 @@ class _CompletedCard extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
         ),
         subtitle: const Text('Completada'),
-trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (track.contentKind == 'video')
+              IconButton(
+                icon: const Icon(Icons.videocam),
+                tooltip: 'Ver vídeo',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => VideoPlayerScreen(track: track),
+                  ),
+                ),
+              ),
             IconButton(
               icon: const Icon(Icons.play_arrow),
               tooltip: 'Escuchar',

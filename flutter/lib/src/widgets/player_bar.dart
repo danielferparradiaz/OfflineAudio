@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:offline_audio_app/src/app_model.dart';
+import 'package:offline_audio_app/src/screens/preview_video_screen.dart';
 import 'package:offline_audio_app/src/screens/video_player_screen.dart';
 
 String _fmtClock(Duration d) {
@@ -18,24 +21,64 @@ class PlayerBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final model = AppModelProvider.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final subtle = scheme.onSurface.withValues(alpha: 0.6);
+    final preview = model.isPreview;
     final track = model.currentTrack;
-    if (track == null) {
-      return const SizedBox(
+    if (track == null && !preview) {
+      return SizedBox(
         height: 56,
         child: Row(
           children: [
-            SizedBox(width: 12),
-            Icon(Icons.music_note, color: Colors.white24),
-            SizedBox(width: 8),
+            const SizedBox(width: 12),
+            Icon(Icons.music_note, color: subtle),
+            const SizedBox(width: 8),
             Expanded(
               child: Text(
                 'Sin reproducción',
-                style: TextStyle(color: Colors.white38),
+                style: TextStyle(color: subtle),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
         ),
+      );
+    }
+
+    // Texto e icono unificados para biblioteca y avance (preview).
+    final title = preview ? (model.previewTitle ?? 'Avance') : track!.title;
+    final subtitle = preview
+        ? [
+            if ((model.previewArtist ?? '').isNotEmpty) model.previewArtist!,
+            'Avance · sin guardar',
+          ].join(' · ')
+        : (track?.artist ?? '');
+    final isVideo = preview ? model.isPreviewVideo : model.isCurrentVideo;
+
+    Widget leading;
+    if (preview) {
+      leading = Icon(
+        isVideo ? Icons.videocam : Icons.music_note,
+        color: subtle,
+      );
+    } else if (track?.thumbnailPath != null) {
+      leading = ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: Image.file(
+          File(track!.thumbnailPath!),
+          width: 36,
+          height: 36,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Icon(
+            isVideo ? Icons.videocam : Icons.music_note,
+            color: subtle,
+          ),
+        ),
+      );
+    } else {
+      leading = Icon(
+        isVideo ? Icons.videocam : Icons.music_note,
+        color: subtle,
       );
     }
 
@@ -54,10 +97,7 @@ class PlayerBar extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(
-                model.isCurrentVideo ? Icons.videocam : Icons.music_note,
-                color: Colors.white70,
-              ),
+              leading,
               const SizedBox(width: 8),
               Expanded(
                 child: Column(
@@ -65,34 +105,50 @@ class PlayerBar extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      track.title,
+                      title,
                       style: TextStyle(
-                        color:
-                            model.isPlaying ? Colors.white : Colors.white70,
+                        color: scheme.onSurface,
+                        fontWeight: model.isPlaying
+                            ? FontWeight.w600
+                            : FontWeight.normal,
                       ),
                       overflow: TextOverflow.ellipsis,
                       maxLines: 1,
                     ),
-                    if ((track.artist ?? '').isNotEmpty)
+                    if (subtitle.isNotEmpty)
                       Text(
-                        track.artist!,
-                        style: const TextStyle(
-                            color: Colors.white54, fontSize: 12),
+                        subtitle,
+                        style: TextStyle(color: subtle, fontSize: 12),
                         overflow: TextOverflow.ellipsis,
                         maxLines: 1,
                       ),
                   ],
                 ),
               ),
-              if (model.isCurrentVideo)
+              if (isVideo)
                 IconButton(
                   icon: const Icon(Icons.fullscreen),
-                  tooltip: 'Reproducir vídeo',
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => VideoPlayerScreen(track: track),
-                    ),
-                  ),
+                  tooltip: 'Ver vídeo',
+                  onPressed: () {
+                    if (preview) {
+                      final url = model.previewUrl;
+                      if (url == null) return;
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => PreviewVideoScreen(
+                            url: url,
+                            title: model.previewTitle ?? 'Avance',
+                          ),
+                        ),
+                      );
+                    } else if (track != null) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => VideoPlayerScreen(track: track),
+                        ),
+                      );
+                    }
+                  },
                 ),
               IconButton(
                 icon: const Icon(Icons.skip_previous),
@@ -118,9 +174,12 @@ class PlayerBar extends StatelessWidget {
           ),
           Row(
             children: [
-              Text(
-                _fmtClock(position),
-                style: const TextStyle(color: Colors.white54, fontSize: 11),
+              SizedBox(
+                width: 46,
+                child: Text(
+                  _fmtClock(position),
+                  style: TextStyle(color: subtle, fontSize: 11),
+                ),
               ),
               Expanded(
                 child: Slider(
@@ -133,9 +192,13 @@ class PlayerBar extends StatelessWidget {
                       : null,
                 ),
               ),
-              Text(
-                _fmtClock(duration),
-                style: const TextStyle(color: Colors.white54, fontSize: 11),
+              SizedBox(
+                width: 46,
+                child: Text(
+                  _fmtClock(duration),
+                  style: TextStyle(color: subtle, fontSize: 11),
+                  textAlign: TextAlign.right,
+                ),
               ),
             ],
           ),

@@ -55,6 +55,29 @@ class AppModel extends ChangeNotifier {
 
   Track? get currentTrack => _currentTrack;
 
+  // Avance de un resultado de búsqueda (stream remoto, fuera de la
+  // biblioteca y sin estadísticas).
+  String? _previewId;
+  String? _previewTitle;
+  String? _previewArtist;
+  String? _previewUrl;
+  bool _previewVideo = false;
+
+  bool get isPreview => _previewId != null;
+  String? get previewId => _previewId;
+  String? get previewTitle => _previewTitle;
+  String? get previewArtist => _previewArtist;
+  String? get previewUrl => _previewUrl;
+  bool get isPreviewVideo => isPreview && _previewVideo;
+
+  void _clearPreview() {
+    _previewId = null;
+    _previewTitle = null;
+    _previewArtist = null;
+    _previewUrl = null;
+    _previewVideo = false;
+  }
+
   mk.Player? get player => _player;
 
   /// Whether the current track is a downloaded video (MP4), so the UI can
@@ -208,7 +231,22 @@ class AppModel extends ChangeNotifier {
   }
 
   void _ensurePlayer() {
-    _player ??= mk.Player();
+    _player ??= mk.Player(
+      configuration: const mk.PlayerConfiguration(
+        vo: 'libmpv',
+        protocolWhitelist: [
+          'udp',
+          'rtp',
+          'tcp',
+          'tls',
+          'data',
+          'file',
+          'http',
+          'https',
+          'crypto',
+        ],
+      ),
+    );
     if (_playerSubscribed) return;
     _playerSubscribed = true;
     final p = _player!;
@@ -242,6 +280,7 @@ class AppModel extends ChangeNotifier {
   /// Play a single track.
   Future<void> playTrack(Track track) async {
     _ensurePlayer();
+    _clearPreview();
     _currentTrack = track;
     _queue = [track];
     _playingPlaylist = false;
@@ -256,6 +295,7 @@ class AppModel extends ChangeNotifier {
     final tracks = await playlistTracks(playlistId: playlistId);
     if (tracks.isEmpty) return;
     _ensurePlayer();
+    _clearPreview();
     _queue = tracks;
     _currentTrack = tracks.first;
     _playingPlaylist = true;
@@ -265,6 +305,31 @@ class AppModel extends ChangeNotifier {
     );
     notifyListeners();
     _recordPlay(tracks.first);
+  }
+
+  /// Reproduce un avance remoto de un resultado de búsqueda: stream directo
+  /// por URL (audio o vídeo muxado), sin tocar biblioteca ni estadísticas.
+  /// El siguiente `playTrack`/`playPlaylist` lo reemplaza limpiamente.
+  Future<void> playPreview({
+    required String id,
+    required String title,
+    String? artist,
+    required String url,
+    bool isVideo = false,
+  }) async {
+    _ensurePlayer();
+    _currentTrack = null;
+    _queue = [];
+    _playingPlaylist = false;
+    _previewId = id;
+    _previewTitle = title;
+    _previewArtist = artist;
+    _previewUrl = url;
+    _previewVideo = isVideo;
+    _position = Duration.zero;
+    _duration = Duration.zero;
+    await _player!.open(mk.Media(url));
+    notifyListeners();
   }
 
   void _recordPlay(Track track) {

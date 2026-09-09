@@ -2,10 +2,17 @@ import 'dart:io';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/rust/engine/models.dart';
+import 'package:offline_audio_app/src/screens/preview_video_screen.dart';
+import 'package:offline_audio_app/src/screens/video_player_screen.dart';
 import 'package:offline_audio_app/src/search/youtube_search.dart';
+
+class _TogglePlayIntent extends Intent {
+  const _TogglePlayIntent();
+}
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -24,19 +31,39 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool _searching = false;
   String? _searchError;
   String? _activeQuery;
+  int? _lastElapsedMs;
+
+  /// Guard contra doble pulsación mientras se obtiene el manifest del avance.
+  bool _previewBusy = false;
+
+  String? _selectedTrackId;
+  final FocusNode _listFocusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    debugPrint('[LibrarySearch] initState hash=$hashCode');
+  }
 
   @override
   void dispose() {
+    debugPrint('[LibrarySearch] dispose hash=$hashCode');
     _searchController.dispose();
+    _listFocusNode.dispose();
     super.dispose();
   }
 
   Future<void> _serveLibrary() async {
+    debugPrint('[LibrarySearch] _serveLibrary hash=$hashCode '
+        'llamado, limpio búsqueda. Stack:\n'
+        '${StackTrace.current.toString().split('\n').take(8).join('\n')}');
+    _searchController.clear();
     setState(() {
       _results = null;
       _searchError = null;
       _searching = false;
       _activeQuery = null;
+      _lastElapsedMs = null;
     });
     await AppModelProvider.of(context)
         .reloadLibrary(search: null, order: _order);
@@ -44,27 +71,161 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Future<void> _searchNow() async {
     final q = _searchController.text.trim();
-    if (q.isEmpty) return;
+    debugPrint('[LibrarySearch] _searchNow pulsado hash=$hashCode query="$q"');
+    if (q.isEmpty) {
+      debugPrint('[LibrarySearch] query vacía, no se busca');
+      return;
+    }
     FocusScope.of(context).unfocus();
     setState(() {
       _searching = true;
       _searchError = null;
       _activeQuery = q;
+      _lastElapsedMs = null;
     });
+    final sw = Stopwatch()..start();
     try {
       final results = await YoutubeSearch.search(q);
-      if (!mounted) return;
+      sw.stop();
+      debugPrint(
+          '[LibrarySearch] OK query="$q" resultados=${results.length} en ${sw.elapsedMilliseconds}ms');
+      if (!mounted) {
+        debugPrint('[LibrarySearch] descartado: widget desmontado');
+        return;
+      }
       setState(() {
         _searching = false;
         _results = results;
+        _lastElapsedMs = sw.elapsedMilliseconds;
       });
-    } catch (e) {
+      debugPrint('[LibrarySearch] setState resultados hash=$hashCode '
+          'mounted=$mounted count=${results.length}');
+    } catch (e, st) {
+      sw.stop();
+      debugPrint(
+          '[LibrarySearch] ERROR query="$q" tras ${sw.elapsedMilliseconds}ms: $e\n$st');
       if (!mounted) return;
       setState(() {
         _searching = false;
-        _searchError = 'No se pudo buscar en YouTube. Revisa tu conexión e '
-            'inténtalo de nuevo.\n($e)';
+        _lastElapsedMs = sw.elapsedMilliseconds;
+        _searchError = 'No se pudo completar la búsqueda. Revisa tu conexión '
+            'e inténtalo de nuevo.\n($e)';
       });
+    }
+  }
+
+  /// Obtiene el stream directo y reproduce el avance: audio en la barra,
+  /// vídeo a pantalla completa. No toca la biblioteca ni las estadísticas.
+  Future<void> _preview(SearchResult r, {required bool video}) async {
+    if (_previewBusy) return;
+    final model = AppModelProvider.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _previewBusy = true);
+    try {
+      final url = video
+          ? await YoutubeSearch.videoPreviewUrl(r.id)
+          : await YoutubeSearch.audioPreviewUrl(r.id);
+      if (!mounted) return;
+      await model.playPreview(
+        id: r.id,
+        title: r.title,
+        artist: r.author,
+        url: url,
+        isVideo: video,
+      );
+      if (video && mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => PreviewVideoScreen(url: url, title: r.title),
+          ),
+        );
+      }
+    } catch (e, st) {
+      debugPrint('[LibrarySearch] avance ${video ? 'vídeo' : 'audio'} '
+          'falló: $e\n$st');
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('No se pudo reproducir el avance: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _previewBusy = false);
+    }
+  }
+
+  /// Hoja con las 4 acciones de un resultado: avance (audio/vídeo) y
+  /// descarga (audio/vídeo), más la tarjeta con miniatura y título.
+  Future<void> _openResultActions(SearchResult r) async {
+    final scheme = Theme.of(context).colorScheme;
+    final subtle = scheme.onSurface.withValues(alpha: 0.55);
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Image.network(
+                  r.thumbnailUrl,
+                  width: 52,
+                  height: 52,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, error, stack) => const SizedBox(
+                    width: 52,
+                    height: 52,
+                    child: ColoredBox(
+                      color: Color(0xFF2A2A2A),
+                      child: Icon(Icons.music_note, color: Colors.white54),
+                    ),
+                  ),
+                ),
+              ),
+              title: Text(r.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+              subtitle: Text(
+                r.author,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: subtle),
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.play_arrow),
+              title: const Text('Escuchar avance'),
+              onTap: () => Navigator.of(context).pop('play_audio'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.videocam_outlined),
+              title: const Text('Ver avance'),
+              onTap: () => Navigator.of(context).pop('play_video'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.download),
+              title: const Text('Descargar audio'),
+              onTap: () => Navigator.of(context).pop('dl_audio'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.movie_creation_outlined),
+              title: const Text('Descargar vídeo'),
+              onTap: () => Navigator.of(context).pop('dl_video'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+    switch (action) {
+      case 'play_audio':
+        await _preview(r, video: false);
+      case 'play_video':
+        await _preview(r, video: true);
+      case 'dl_audio':
+        await _startDownload(r, ContentKind.music);
+      case 'dl_video':
+        await _startDownload(r, ContentKind.video);
     }
   }
 
@@ -92,30 +253,88 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _serveLibrary();
   }
 
+  /// Reproduce un track; si es vídeo, abre directamente el reproductor de
+  /// vídeo (que además garantiza su propia reproducción).
+  static Future<void> openTrack(
+      BuildContext context, AppModel model, Track track) async {
+    if (track.contentKind == 'video') {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => VideoPlayerScreen(track: track)),
+      );
+    } else {
+      await model.playTrack(track);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final model = AppModelProvider.of(context);
+    // Solo log cuando hay búsqueda en juego (fase spinner / error). El
+    // rebuild por cada notify del AppModel spamearía la consola en reposo.
+    if (_searching || _searchError != null) {
+      debugPrint('[LibrarySearch] build hash=$hashCode searching=$_searching '
+          'results=${_results?.length} error=${_searchError != null} '
+          'query=$_activeQuery lib=${model.library.length}');
+    }
 
     return SafeArea(
-      child: Stack(
-        children: [
-          Positioned.fill(child: _buildContent(context, model)),
-          _buildFrostedTop(context),
-        ],
+      child: Shortcuts(
+        shortcuts: {
+          SingleActivator(LogicalKeyboardKey.space): const _TogglePlayIntent(),
+        },
+        child: Actions(
+          actions: {
+            _TogglePlayIntent: CallbackAction<_TogglePlayIntent>(
+              onInvoke: (_) {
+                final m = AppModelProvider.of(context);
+                m.togglePause();
+                return null;
+              },
+            ),
+          },
+          child: Focus(
+            autofocus: true,
+            focusNode: _listFocusNode,
+            onKeyEvent: (node, event) {
+              // Keyboard navigation for arrow keys is handled via selection state.
+              return KeyEventResult.ignored;
+            },
+            child: Column(
+              children: [
+                _buildFrostedTop(context),
+                Expanded(child: _buildContent(context, model)),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 
   Widget _buildContent(BuildContext context, AppModel model) {
+    final subtle =
+        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6);
     if (_searching) {
-      return const _SearchFeedback(
-        child: Center(child: CircularProgressIndicator()),
+      return _SearchFeedback(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Center(child: CircularProgressIndicator()),
+            const SizedBox(height: 12),
+            Text(
+              'Buscando…',
+              style: TextStyle(color: subtle, fontSize: 12),
+            ),
+          ],
+        ),
       );
     }
     if (_searchError != null) {
       return _SearchFeedback(
         child: _SearchError(
-          message: _searchError!,
+          message: '«${_activeQuery ?? ''}»'
+              '${_lastElapsedMs != null ? ' · ${_lastElapsedMs}ms' : ''}\n'
+              '${_searchError!}',
           onRetry: _searchNow,
           onClose: _serveLibrary,
         ),
@@ -130,39 +349,70 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Widget _buildResults(
       BuildContext context, AppModel model, List<SearchResult> results) {
+    final elapsed = _lastElapsedMs;
+    final subtle =
+        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55);
     return ListView(
-      padding: const EdgeInsets.only(top: 150, bottom: 8),
+      padding: const EdgeInsets.only(top: 8, bottom: 8),
       children: [
         _SearchHeader(query: _activeQuery ?? '', onClose: _serveLibrary),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+          child: Text(
+            '${results.length} resultado(s)'
+            '${elapsed != null ? ' · ${elapsed}ms' : ''}',
+            style: TextStyle(fontSize: 11, color: subtle),
+          ),
+        ),
         const SizedBox(height: 4),
         if (results.isEmpty)
           Padding(
             padding: const EdgeInsets.all(32),
-            child: Text(
-              'Sin resultados para «${_activeQuery ?? ''}»\n'
-              'Prueba con el nombre del artista, canción o una palabra clave.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white54),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.search_off,
+                    size: 48, color: subtle.withValues(alpha: 0.5)),
+                const SizedBox(height: 12),
+                Text(
+                  'Sin resultados para «${_activeQuery ?? ''}»\n'
+                  'Prueba con el nombre del artista, canción o una palabra clave.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: subtle),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: _searchNow,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reintentar'),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      onPressed: _serveLibrary,
+                      child: const Text('Volver a la biblioteca'),
+                    ),
+                  ],
+                ),
+              ],
             ),
           )
         else
           ...results.map(
             (r) => _SearchResultTile(
               result: r,
-              onDownloadAudio: () =>
-                  _startDownload(r, ContentKind.music),
-              onDownloadVideo: () =>
-                  _startDownload(r, ContentKind.video),
+              onTap: () => _preview(r, video: false),
+              onActions: () => _openResultActions(r),
             ),
           ),
       ],
     );
   }
 
-  /// Frosted header + search that float above the scrolling content. Music
-  /// flows underneath and the translucent surface lets the movement show
-  /// through. `mainAxisSize.min` keeps this panel to its own contents so the
-  /// blurred surface never swallows the whole screen.
+  /// Panel superior (título sutil + buscador) con superficie translúcida.
+  /// Va en flujo normal encima del contenido, sin solapes.
   Widget _buildFrostedTop(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return ClipRRect(
@@ -192,38 +442,34 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Widget _buildHeader(BuildContext context) {
+    final subtle =
+        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+      padding: const EdgeInsets.fromLTRB(16, 10, 8, 2),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Text(
-              'Mi biblioteca',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              'Biblioteca',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: subtle,
+              ),
             ),
           ),
-          PopupMenuButton<SortOrder>(
-            initialValue: _order,
-            onSelected: _onOrderSelected,
-            icon: const Icon(Icons.sort),
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: SortOrder.dateDesc,
-                child: Text('Más recientes primero'),
+          Builder(
+            builder: (context) => InkWell(
+              onTap: () => Scaffold.of(context).openEndDrawer(),
+              borderRadius: BorderRadius.circular(24),
+              child: const Padding(
+                padding: EdgeInsets.all(4),
+                child: CircleAvatar(
+                  radius: 16,
+                  child: Icon(Icons.person, size: 20),
+                ),
               ),
-              PopupMenuItem(
-                value: SortOrder.dateAsc,
-                child: Text('Más antiguos primero'),
-              ),
-              PopupMenuItem(
-                value: SortOrder.titleAsc,
-                child: Text('Título A-Z'),
-              ),
-              PopupMenuItem(
-                value: SortOrder.titleDesc,
-                child: Text('Título Z-A'),
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -287,33 +533,47 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (tracks.isEmpty && recent.isEmpty) {
       return const _EmptyLibrary();
     }
+    if (_selectedTrackId == null && recent.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _selectedTrackId = recent.first.id);
+      });
+    }
     return ListView(
-      // Start below the floating frosted header + search.
-      padding: const EdgeInsets.only(top: 150, bottom: 8),
+      padding: const EdgeInsets.only(top: 8, bottom: 8),
       children: [
         if (recent.isNotEmpty) ...[
           const _SectionHeader('Reciente'),
           _RecentBanner(
             track: recent.first,
-            onPlay: () => model.playTrack(recent.first),
+            selected: _selectedTrackId == recent.first.id,
+            onPlay: () => openTrack(context, model, recent.first),
+            onSelect: () => setState(() => _selectedTrackId = recent.first.id),
           ),
           ...recent
               .skip(1)
               .map(
-                (t) => _TrackTile(props: t, onPlay: () => model.playTrack(t)),
+                (t) => _TrackTile(
+                    props: t,
+                    selected: _selectedTrackId == t.id,
+                    onPlay: () => openTrack(context, model, t),
+                    onSelect: () => setState(() => _selectedTrackId = t.id)),
               ),
           if (tracks.isNotEmpty) const _SectionHeader('Biblioteca'),
         ],
         ...tracks.map(
-          (t) => _TrackTile(props: t, onPlay: () => model.playTrack(t)),
+          (t) => _TrackTile(
+            props: t,
+            selected: _selectedTrackId == t.id,
+            onPlay: () => openTrack(context, model, t),
+            onSelect: () => setState(() => _selectedTrackId = t.id),
+          ),
         ),
       ],
     );
   }
 }
 
-/// Shared area shown between the frosted header and the list bottom while the
-/// search is busy / failed.
+/// Área de spinner / error: centrada en el espacio bajo la cabecera.
 class _SearchFeedback extends StatelessWidget {
   const _SearchFeedback({required this.child});
 
@@ -322,7 +582,8 @@ class _SearchFeedback extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.only(top: 150, bottom: 32),
+      padding: const EdgeInsets.fromLTRB(16, 32, 16, 32),
+      alignment: Alignment.center,
       child: child,
     );
   }
@@ -341,17 +602,20 @@ class _SearchError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final subtle =
+        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.65);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.cloud_off, size: 48, color: Colors.white38),
+          Icon(Icons.cloud_off,
+              size: 48, color: subtle.withValues(alpha: 0.6)),
           const SizedBox(height: 12),
           Text(
             message,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white70),
+            style: TextStyle(color: subtle),
           ),
           const SizedBox(height: 16),
           Row(
@@ -412,18 +676,19 @@ class _SearchHeader extends StatelessWidget {
 class _SearchResultTile extends StatelessWidget {
   const _SearchResultTile({
     required this.result,
-    required this.onDownloadAudio,
-    required this.onDownloadVideo,
+    required this.onTap,
+    required this.onActions,
   });
 
   final SearchResult result;
-  final VoidCallback onDownloadAudio;
-  final VoidCallback onDownloadVideo;
+  final VoidCallback onTap;
+  final VoidCallback onActions;
 
   @override
   Widget build(BuildContext context) {
     final duration = result.duration;
     return ListTile(
+      onTap: onTap,
       leading: ClipRRect(
         borderRadius: BorderRadius.circular(6),
         child: Image.network(
@@ -455,20 +720,10 @@ class _SearchResultTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: 'Descargar audio',
-            onPressed: onDownloadAudio,
-          ),
-          IconButton(
-            icon: const Icon(Icons.videocam),
-            tooltip: 'Descargar vídeo (MP4)',
-            onPressed: onDownloadVideo,
-          ),
-        ],
+      trailing: IconButton(
+        icon: const Icon(Icons.more_vert),
+        tooltip: 'Ver y descargar',
+        onPressed: onActions,
       ),
     );
   }
@@ -485,10 +740,12 @@ String _fmtLength(Duration d) {
 /// Calling card for the most recently downloaded item: artwork, metadata and
 /// a direct "Escuchar" action.
 class _RecentBanner extends StatelessWidget {
-  const _RecentBanner({required this.track, required this.onPlay});
+  const _RecentBanner({required this.track, required this.onPlay, this.selected = false, this.onSelect});
 
   final Track track;
   final VoidCallback onPlay;
+  final bool selected;
+  final VoidCallback? onSelect;
 
   @override
   Widget build(BuildContext context) {
@@ -498,13 +755,15 @@ class _RecentBanner extends StatelessWidget {
       if (track.album != null && track.album!.isNotEmpty) track.album!,
     ].join(' · ');
     return Card(
-      elevation: 0,
+      elevation: selected ? 4 : 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
+        side: selected ? const BorderSide(color: Colors.amber, width: 2) : BorderSide.none,
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: onPlay,
+        onTap: onSelect ?? onPlay,
+        onDoubleTap: onPlay,
         child: Container(
           height: 96,
           decoration: const BoxDecoration(
@@ -585,10 +844,13 @@ class _SectionHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Text(
         title,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.bold,
-          color: Colors.white70,
+          color: Theme.of(context)
+              .colorScheme
+              .onSurface
+              .withValues(alpha: 0.6),
         ),
       ),
     );
@@ -596,17 +858,27 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _TrackTile extends StatelessWidget {
-  const _TrackTile({required this.props, required this.onPlay});
+  const _TrackTile({required this.props, required this.onPlay, this.selected = false, this.onSelect});
 
   final Track props;
   final VoidCallback onPlay;
+  final bool selected;
+  final VoidCallback? onSelect;
 
   @override
   Widget build(BuildContext context) {
     final thumb = props.thumbnailPath;
     final isVideo = props.contentKind == 'video';
-    return ListTile(
-      leading: thumb != null
+    return GestureDetector(
+      onTap: onSelect,
+      onDoubleTap: onPlay,
+      child: Container(
+        decoration: BoxDecoration(
+          border: selected ? Border(left: BorderSide(color: Colors.amber, width: 3)) : null,
+          color: selected ? Theme.of(context).colorScheme.secondaryContainer.withValues(alpha: 0.2) : null,
+        ),
+        child: ListTile(
+        leading: thumb != null
           ? ClipRRect(
               borderRadius: BorderRadius.circular(6),
               child: Image.file(
@@ -634,40 +906,57 @@ class _TrackTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (isVideo)
-            const Padding(
-              padding: EdgeInsets.only(right: 4),
-              child: Icon(Icons.videocam, size: 16, color: Colors.white54),
+      trailing: selected
+          ? FilledButton.icon(
+              onPressed: onPlay,
+              icon: const Icon(Icons.play_arrow_rounded),
+              label: const Text('Escuchar'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF14432E),
+                foregroundColor: Colors.white,
+              ),
+            )
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isVideo)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Icon(Icons.videocam,
+                        size: 16,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.5)),
+                  ),
+                PopupMenuButton<String>(
+                  onSelected: (value) {
+                    if (value == 'add_playlist') {
+                      _openAddToPlaylist(context);
+                    } else if (value == 'delete') {
+                      _deleteTrack(context);
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: 'add_playlist',
+                      child: Text('Añadir a playlist'),
+                    ),
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Text('Eliminar'),
+                    ),
+                  ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.play_arrow),
+                  onPressed: onPlay,
+                ),
+              ],
             ),
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'add_playlist') {
-                _openAddToPlaylist(context);
-              } else if (value == 'delete') {
-                _deleteTrack(context);
-              }
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: 'add_playlist',
-                child: Text('Añadir a playlist'),
-              ),
-              PopupMenuItem(
-                value: 'delete',
-                child: Text('Eliminar'),
-              ),
-            ],
-          ),
-          IconButton(
-            icon: const Icon(Icons.play_arrow),
-            onPressed: onPlay,
-          ),
-        ],
-      ),
-    );
+    ),
+  ),
+  );
   }
 
   Future<void> _openAddToPlaylist(BuildContext context) async {
@@ -763,19 +1052,21 @@ class _EmptyLibrary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    final subtle =
+        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6);
+    return Center(
       child: Padding(
-        padding: EdgeInsets.all(32),
+        padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.library_music_outlined, size: 64, color: Colors.white24),
-            SizedBox(height: 16),
+            Icon(Icons.library_music_outlined,
+                size: 64, color: subtle.withValues(alpha: 0.5)),
+            const SizedBox(height: 16),
             Text(
-              'Tu biblioteca está vacía.\nBusca en YouTube o añade una URL '
-              'para empezar.',
+              'Tu biblioteca está vacía.\nBusca en YouTube para empezar.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white54),
+              style: TextStyle(color: subtle),
             ),
           ],
         ),

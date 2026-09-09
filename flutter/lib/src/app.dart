@@ -6,9 +6,9 @@ import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/screens/library_screen.dart';
 import 'package:offline_audio_app/src/screens/downloads_screen.dart';
 import 'package:offline_audio_app/src/screens/playlists_screen.dart';
-import 'package:offline_audio_app/src/screens/settings_screen.dart';
 import 'package:offline_audio_app/src/settings.dart';
 import 'package:offline_audio_app/src/widgets/player_bar.dart';
+import 'package:offline_audio_app/src/widgets/settings_drawer.dart';
 
 /// Single appearance settings instance used by the whole app.
 final SettingsController appSettings = SettingsController();
@@ -214,19 +214,48 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
+  /// Instancias estables: si se recrean en cada build, el State de
+  /// LibraryScreen (búsqueda en curso / resultados) se puede perder en
+  /// cada notify del AppModel.
+  static const _pages = [
+    LibraryScreen(),
+    DownloadsScreen(),
+    PlaylistsScreen(),
+  ];
+
   @override
   Widget build(BuildContext context) {
     AppModelProvider.of(context); // rebuild on state changes
-    final pages = [
-      const LibraryScreen(),
-      const DownloadsScreen(),
-      const PlaylistsScreen(),
-    ];
     return Scaffold(
+      endDrawer: Drawer(
+        child: SafeArea(
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    CircleAvatar(radius: 28, child: Icon(Icons.person, size: 32)),
+                    SizedBox(height: 12),
+                    Text('Invitado', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text('Cuenta sin iniciar', style: TextStyle(fontSize: 12, color: Colors.white54)),
+                    SizedBox(height: 4),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              const Expanded(
+                child: SettingsDrawerContent(),
+              ),
+            ],
+          ),
+        ),
+      ),
       body: Column(
         children: [
           Expanded(
-            child: IndexedStack(index: _index, children: pages),
+            child: IndexedStack(index: _index, children: _pages),
           ),
           const PlayerBar(),
         ],
@@ -240,13 +269,6 @@ class _HomeShellState extends State<HomeShell> {
                 completedCount: AppModelProvider.of(context).downloads.length +
                     AppModelProvider.of(context).downloadErrors.length),
             _navButton(2, Icons.queue_music, 'Playlists'),
-            IconButton(
-              icon: const Icon(Icons.settings),
-              tooltip: 'Ajustes',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              ),
-            ),
           ],
         ),
       ),
@@ -255,6 +277,9 @@ class _HomeShellState extends State<HomeShell> {
 
   Widget _navButton(int index, IconData icon, String label) {
     final selected = _index == index;
+    final scheme = Theme.of(context).colorScheme;
+    final color =
+        selected ? scheme.primary : scheme.onSurface.withValues(alpha: 0.55);
     return InkWell(
       onTap: () => setState(() => _index = index),
       child: Padding(
@@ -262,15 +287,18 @@ class _HomeShellState extends State<HomeShell> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: selected ? Colors.white : Colors.white54),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                color: selected ? Colors.white : Colors.white54,
+            Icon(icon, color: color),
+            if (selected) ...[
+              const SizedBox(height: 2),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: color,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -280,6 +308,9 @@ class _HomeShellState extends State<HomeShell> {
   Widget _navButtonWithBadge(
       int index, IconData icon, String label, {int? completedCount}) {
     final selected = _index == index;
+    final scheme = Theme.of(context).colorScheme;
+    final color =
+        selected ? scheme.primary : scheme.onSurface.withValues(alpha: 0.55);
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -290,15 +321,18 @@ class _HomeShellState extends State<HomeShell> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, color: selected ? Colors.white : Colors.white54),
-                const SizedBox(height: 2),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: selected ? Colors.white : Colors.white54,
+                Icon(icon, color: color),
+                if (selected) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: color,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
