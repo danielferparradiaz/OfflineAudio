@@ -22,24 +22,50 @@ const kPresetColors = <int>[
   0xFFE0E0E0,
 ];
 
+/// Escala de grises para colores de fondo (de negro a blanco).
+const kGrayscaleSwatches = <int>[
+  0xFF000000,
+  0xFF111111,
+  0xFF1E1E1E,
+  0xFF2E2E2E,
+  0xFF424242,
+  0xFF616161,
+  0xFF8A8A8A,
+  0xFFBDBDBD,
+  0xFFDCDCDC,
+  0xFFF0F0F0,
+  0xFFFFFFFF,
+];
+
 /// Opens a dialog to pick a color. Returns the chosen [Color] or `null` if
-/// the user cancels.
+/// the user cancels. Pass [swatches] to override the default accent presets
+/// (e.g. [kGrayscaleSwatches] for backgrounds).
 Future<Color?> showColorPickerDialog(
   BuildContext context, {
   required String title,
   required Color initial,
+  List<int> swatches = kPresetColors,
 }) {
   return showDialog<Color>(
     context: context,
-    builder: (_) => _ColorPickerDialog(title: title, initial: initial),
+    builder: (_) => _ColorPickerDialog(
+      title: title,
+      initial: initial,
+      swatches: swatches,
+    ),
   );
 }
 
 class _ColorPickerDialog extends StatefulWidget {
-  const _ColorPickerDialog({required this.title, required this.initial});
+  const _ColorPickerDialog({
+    required this.title,
+    required this.initial,
+    required this.swatches,
+  });
 
   final String title;
   final Color initial;
+  final List<int> swatches;
 
   @override
   State<_ColorPickerDialog> createState() => _ColorPickerDialogState();
@@ -54,48 +80,48 @@ class _ColorPickerDialogState extends State<_ColorPickerDialog> {
     _color = widget.initial;
   }
 
-  double get _hue => HSLColor.fromColor(_color).hue;
-
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final isGray = identical(widget.swatches, kGrayscaleSwatches);
     return AlertDialog(
       title: Text(widget.title),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _Preview(color: _color),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+      content: SizedBox(
+        width: double.maxFinite,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              for (final value in kPresetColors)
-                _Swatch(
-                  color: Color(value),
-                  selected: _color.toARGB32() == value,
-                  onTap: () => setState(() => _color = Color(value)),
+              _Preview(color: _color),
+              const SizedBox(height: 16),
+              Text(
+                isGray ? 'Escala de grises' : 'Predefinidos',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurface.withValues(alpha: 0.55),
                 ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              const _HueBar(),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Slider(
-                  value: _hue,
-                  min: 0,
-                  max: 360,
-                  onChanged: (h) => setState(
-                    () => _color = HSLColor.fromColor(_color).withHue(h).toColor(),
-                  ),
-                ),
+              ),
+              const SizedBox(height: 8),
+              GridView.count(
+                crossAxisCount: 6,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                children: [
+                  for (final value in widget.swatches)
+                    _Swatch(
+                      color: Color(value),
+                      selected: _color.toARGB32() == value,
+                      onTap: () => setState(() => _color = Color(value)),
+                    ),
+                ],
               ),
             ],
           ),
-        ],
+        ),
       ),
       actions: [
         TextButton(
@@ -104,12 +130,16 @@ class _ColorPickerDialogState extends State<_ColorPickerDialog> {
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(_color),
-          child: const Text('Usar'),
+          child: const Text('Elegir'),
         ),
       ],
     );
   }
 }
+
+/// Contraste legible sobre cualquier color (claro u oscuro).
+Color _onColor(Color c) =>
+    c.computeLuminance() > 0.45 ? Colors.black : Colors.white;
 
 class _Preview extends StatelessWidget {
   const _Preview({required this.color});
@@ -120,20 +150,25 @@ class _Preview extends StatelessWidget {
   Widget build(BuildContext context) {
     final hex =
         '#${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}';
-    return Row(
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Theme.of(context).colorScheme.outline),
-          ),
+    return Container(
+      height: 84,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant,
         ),
-        const SizedBox(width: 12),
-        Text(hex.toUpperCase(), style: Theme.of(context).textTheme.bodyLarge),
-      ],
+      ),
+      child: Text(
+        hex.toUpperCase(),
+        style: TextStyle(
+          color: _onColor(color),
+          fontSize: 17,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1.5,
+        ),
+      ),
     );
   }
 }
@@ -154,38 +189,22 @@ class _Swatch extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 40,
-        height: 40,
         decoration: BoxDecoration(
           color: color,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(12),
           border: selected
               ? Border.all(
                   color: Theme.of(context).colorScheme.onSurface,
-                  width: 3,
+                  width: 2.5,
                 )
-              : Border.all(color: Colors.transparent),
+              : Border.all(
+                  color:
+                      Theme.of(context).colorScheme.outlineVariant,
+                ),
         ),
-      ),
-    );
-  }
-}
-
-/// Thin rainbow strip used as the visual backdrop for the hue slider.
-class _HueBar extends StatelessWidget {
-  const _HueBar();
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = <Color>[
-      for (var h = 0.0; h <= 360; h += 24) HSLColor.fromAHSL(1, h, 1, 0.5).toColor(),
-    ];
-    return Container(
-      width: 20,
-      height: 12,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(6),
-        gradient: LinearGradient(colors: colors),
+        child: selected
+            ? Icon(Icons.check, color: _onColor(color), size: 22)
+            : null,
       ),
     );
   }
