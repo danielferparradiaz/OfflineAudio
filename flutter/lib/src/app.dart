@@ -1,6 +1,8 @@
 import 'dart:io' show Platform;
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/screens/screens.dart';
@@ -43,6 +45,13 @@ class _OfflineAudioAppState extends State<OfflineAudioApp> {
                   theme: light,
                   darkTheme: dark,
                   themeMode: settings.themeMode,
+                  builder: (context, child) => CupertinoTheme(
+                    data: _buildCupertinoTheme(
+                      Theme.of(context).brightness,
+                      settings,
+                    ),
+                    child: child ?? const SizedBox.shrink(),
+                  ),
                   home: const RootBootstrap(),
                 );
               },
@@ -71,6 +80,23 @@ class _OfflineAudioAppState extends State<OfflineAudioApp> {
       colorScheme: colorScheme,
       scaffoldBackgroundColor: bg != null ? Color(bg) : scheme.surface,
       cardColor: bg != null ? Color(bg) : scheme.surface,
+    );
+  }
+
+  /// Tema Cupertino para los widgets nativos en iOS/macOS. Toma el acento y
+  /// el fondo personalizados del mismo SettingsController que el tema Material.
+  CupertinoThemeData _buildCupertinoTheme(
+    Brightness brightness,
+    SettingsController s,
+  ) {
+    final primary = Color(s.accent);
+    return CupertinoThemeData(
+      brightness: brightness,
+      primaryColor: primary,
+      scaffoldBackgroundColor: s.background != null
+          ? Color(s.background!)
+          : null,
+      textTheme: CupertinoTextThemeData(primaryColor: primary),
     );
   }
 }
@@ -113,7 +139,6 @@ class _RootBootstrapState extends State<RootBootstrap> {
     if (!context.mounted) return;
     if (status.ytDlpPresent && status.ffmpegPresent) return;
 
-    final messenger = ScaffoldMessenger.of(context);
     final go = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -136,15 +161,16 @@ class _RootBootstrapState extends State<RootBootstrap> {
     );
     if (go != true || !context.mounted) return;
 
+    final contextForToast = context;
     try {
       await downloadMobileBinaries();
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Paquetes instalados')),
-      );
+      if (contextForToast.mounted) {
+        showAppSnackBar(contextForToast, message: 'Paquetes instalados');
+      }
     } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('No se pudo descargar: $e')),
-      );
+      if (contextForToast.mounted) {
+        showAppSnackBar(contextForToast, message: 'No se pudo descargar: $e');
+      }
     }
   }
 
@@ -166,11 +192,7 @@ class SplashScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Image.asset(
-              'assets/logo.png',
-              width: 220,
-              fit: BoxFit.contain,
-            ),
+            Image.asset('assets/logo.png', width: 220, fit: BoxFit.contain),
             const SizedBox(height: 28),
             const Text(
               'OfflineAudio',
@@ -183,10 +205,7 @@ class SplashScreen extends StatelessWidget {
             const SizedBox(height: 6),
             const Text(
               'Reproductor offline',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.white54,
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.white54),
             ),
             const SizedBox(height: 32),
             const SizedBox(
@@ -201,6 +220,10 @@ class SplashScreen extends StatelessWidget {
   }
 }
 
+/// Shell de navegación adaptativo:
+/// - macOS: barra lateral nativa a la izquierda.
+/// - iOS: CupertinoTabBar inferior con mini-player justo encima.
+/// - Android/Windows: Scaffold Material con Drawer y BottomAppBar (el actual).
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -214,37 +237,277 @@ class _HomeShellState extends State<HomeShell> {
   /// Instancias estables: si se recrean en cada build, el State de
   /// LibraryScreen (búsqueda en curso / resultados) se puede perder en
   /// cada notify del AppModel.
-  static const _pages = [
-    LibraryScreen(),
-    DownloadsScreen(),
-    PlaylistsScreen(),
-  ];
+  static const _pages = [LibraryScreen(), DownloadsScreen(), PlaylistsScreen()];
+
+  int _completedCount() {
+    final model = AppModelProvider.of(context);
+    return model.downloads.length + model.downloadErrors.length;
+  }
 
   @override
   Widget build(BuildContext context) {
     AppModelProvider.of(context); // rebuild on state changes
+    if (isMacOSPlatform) return _buildMacShell(context);
+    if (isIOSPlatform) return _buildIosShell(context);
+    return _buildMaterialShell(context);
+  }
+
+  // ---------------------------------------------------------------- macOS
+  Widget _buildMacShell(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sidebarColor = isDark
+        ? const Color(0xFF1C1C1E)
+        : const Color(0xFFF2F2F7);
+    final background = isDark
+        ? const Color(0xFF0E0E0E)
+        : const Color(0xFFFFFFFF);
+    return CupertinoPageScaffold(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Material(
+          color: background,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(width: 220, child: _buildSidebar(context, sidebarColor)),
+              const VerticalDivider(width: 1),
+              Expanded(
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: IndexedStack(index: _index, children: _pages),
+                    ),
+                    const PlayerBar(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSidebar(BuildContext context, Color background) {
+    return ColoredBox(
+      color: background,
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(24, 18, 24, 10),
+              child: Text(
+                'OfflineAudio',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              ),
+            ),
+            _sideItem(context, 0, Icons.library_music, 'Biblioteca'),
+            _sideItem(
+              context,
+              1,
+              Icons.download,
+              'Descargas',
+              badge: _completedCount(),
+            ),
+            _sideItem(context, 2, Icons.queue_music, 'Playlists'),
+            const Spacer(),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(6),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(6),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.settings_outlined,
+                          size: 18,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                        const SizedBox(width: 10),
+                        const Text('Ajustes'),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sideItem(
+    BuildContext context,
+    int index,
+    IconData icon,
+    String label, {
+    int? badge,
+  }) {
+    final selected = _index == index;
+    final scheme = Theme.of(context).colorScheme;
+    final onSurface = scheme.onSurface;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+      child: Material(
+        color: selected
+            ? onSurface.withValues(alpha: isApplePlatform ? 0.12 : 0.08)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(6),
+          onTap: () => setState(() => _index = index),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color: selected
+                      ? scheme.primary
+                      : onSurface.withValues(alpha: 0.75),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontWeight: selected
+                          ? FontWeight.w600
+                          : FontWeight.normal,
+                    ),
+                  ),
+                ),
+                if (badge != null && badge > 0) _badge(badge),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------- iOS
+  Widget _buildIosShell(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return CupertinoTabScaffold(
+      tabBar: CupertinoTabBar(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        activeColor: scheme.primary,
+        inactiveColor: scheme.onSurface.withValues(alpha: 0.45),
+        items: [
+          _iosTab(Icons.library_music, 'Biblioteca'),
+          _iosTab(Icons.download, 'Descargas', badge: _completedCount()),
+          _iosTab(Icons.queue_music, 'Playlists'),
+        ],
+      ),
+      tabBuilder: (context, index) => Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Material(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          child: Column(
+            children: [
+              Expanded(child: _pages[index]),
+              const PlayerBar(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  BottomNavigationBarItem _iosTab(IconData icon, String label, {int? badge}) {
+    final iconWidget = badge != null && badge > 0
+        ? _badgedIcon(icon, badge)
+        : Icon(icon);
+    return BottomNavigationBarItem(
+      icon: iconWidget,
+      activeIcon: iconWidget,
+      label: label,
+    );
+  }
+
+  Stack _badgedIcon(IconData icon, int badge) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(icon),
+        Positioned(right: -8, top: -4, child: _badge(badge)),
+      ],
+    );
+  }
+
+  Widget _badge(int count) {
+    return Container(
+      padding: const EdgeInsets.all(2),
+      decoration: const BoxDecoration(
+        color: Colors.green,
+        shape: BoxShape.circle,
+      ),
+      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+      child: Text(
+        count > 99 ? '99+' : count.toString(),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 9,
+          fontWeight: FontWeight.bold,
+        ),
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+
+  // --------------------------------------------- Android / Windows / Linux
+  Widget _buildMaterialShell(BuildContext context) {
     return Scaffold(
       endDrawer: Drawer(
         child: SafeArea(
           child: Column(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 32,
+                  horizontal: 24,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: const [
-                    CircleAvatar(radius: 28, child: Icon(Icons.person, size: 32)),
+                    CircleAvatar(
+                      radius: 28,
+                      child: Icon(Icons.person, size: 32),
+                    ),
                     SizedBox(height: 12),
-                    Text('Invitado', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    Text('Cuenta sin iniciar', style: TextStyle(fontSize: 12, color: Colors.white54)),
+                    Text(
+                      'Invitado',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'Cuenta sin iniciar',
+                      style: TextStyle(fontSize: 12, color: Colors.white54),
+                    ),
                     SizedBox(height: 4),
                   ],
                 ),
               ),
               const Divider(height: 1),
-              const Expanded(
-                child: SettingsDrawerContent(),
-              ),
+              const Expanded(child: SettingsDrawerContent()),
             ],
           ),
         ),
@@ -262,9 +525,12 @@ class _HomeShellState extends State<HomeShell> {
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             _navButton(0, Icons.library_music, 'Biblioteca'),
-            _navButtonWithBadge(1, Icons.download, 'Descargas',
-                completedCount: AppModelProvider.of(context).downloads.length +
-                    AppModelProvider.of(context).downloadErrors.length),
+            _navButtonWithBadge(
+              1,
+              Icons.download,
+              'Descargas',
+              completedCount: _completedCount(),
+            ),
             _navButton(2, Icons.queue_music, 'Playlists'),
           ],
         ),
@@ -275,27 +541,47 @@ class _HomeShellState extends State<HomeShell> {
   Widget _navButton(int index, IconData icon, String label) {
     final selected = _index == index;
     final scheme = Theme.of(context).colorScheme;
-    final color =
-        selected ? scheme.primary : scheme.onSurface.withValues(alpha: 0.55);
     return InkWell(
       onTap: () => setState(() => _index = index),
+      customBorder: const CircleBorder(),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color),
-            if (selected) ...[
-              const SizedBox(height: 2),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: color,
-                  fontWeight: FontWeight.w600,
-                ),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: selected
+                    ? scheme.secondaryContainer
+                    : Colors.transparent,
+                shape: BoxShape.circle,
               ),
-            ],
+              child: Icon(
+                icon,
+                color: selected
+                    ? scheme.onSecondaryContainer
+                    : scheme.onSurface.withValues(alpha: 0.55),
+              ),
+            ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              alignment: Alignment.topCenter,
+              child: selected
+                  ? Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: scheme.onSurface.withValues(alpha: 0.8),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
           ],
         ),
       ),
@@ -303,62 +589,17 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Widget _navButtonWithBadge(
-      int index, IconData icon, String label, {int? completedCount}) {
-    final selected = _index == index;
-    final scheme = Theme.of(context).colorScheme;
-    final color =
-        selected ? scheme.primary : scheme.onSurface.withValues(alpha: 0.55);
+    int index,
+    IconData icon,
+    String label, {
+    int? completedCount,
+  }) {
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        InkWell(
-          onTap: () => setState(() => _index = index),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, color: color),
-                if (selected) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: color,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
+        _navButton(index, icon, label),
         if (completedCount != null && completedCount > 0)
-          Positioned(
-            right: -4,
-            top: -4,
-            child: Container(
-              padding: const EdgeInsets.all(2),
-              decoration: const BoxDecoration(
-                color: Colors.green,
-                shape: BoxShape.circle,
-              ),
-              constraints: const BoxConstraints(
-                minWidth: 16,
-                minHeight: 16,
-              ),
-              child: Text(
-                completedCount > 99 ? '99+' : completedCount.toString(),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
+          Positioned(right: -4, top: -4, child: _badge(completedCount)),
       ],
     );
   }

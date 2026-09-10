@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/rust/engine/models.dart';
@@ -12,17 +13,15 @@ class PlaylistsScreen extends StatelessWidget {
     final model = AppModelProvider.of(context);
     final playlists = model.playlists;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Playlists'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: 'Nueva playlist',
-            onPressed: () => _createPlaylist(context),
-          ),
-        ],
-      ),
+    return AppPage(
+      title: 'Playlists',
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.add),
+          tooltip: 'Nueva playlist',
+          onPressed: () => _createPlaylist(context),
+        ),
+      ],
       body: playlists.isEmpty
           ? const Center(
               child: Text(
@@ -72,8 +71,7 @@ class PlaylistsScreen extends StatelessWidget {
                   onTap: () async {
                     await Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) =>
-                            PlaylistDetailScreen(playlistId: p.id),
+                        builder: (_) => PlaylistDetailScreen(playlistId: p.id),
                       ),
                     );
                     if (context.mounted) {
@@ -88,36 +86,30 @@ class PlaylistsScreen extends StatelessWidget {
 
   Future<void> _createPlaylist(BuildContext context) async {
     final controller = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Nueva playlist'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Nombre'),
-          onSubmitted: (v) => Navigator.of(context).pop(v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text),
-            child: const Text('Crear'),
-          ),
-        ],
+    final name = await showAppDialog<String>(
+      context,
+      title: const Text('Nueva playlist'),
+      content: AppTextField(
+        controller: controller,
+        autofocus: true,
+        label: 'Nombre',
+        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
       ),
+      actions: [
+        AppDialogAction(label: 'Cancelar'),
+        AppDialogAction(
+          label: 'Crear',
+          getValue: () => controller.text.trim(),
+          isDefault: true,
+        ),
+      ],
     );
     if (name != null && name.trim().isNotEmpty) {
       try {
         await createPlaylist(name: name.trim());
       } catch (e) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('No se pudo crear: $e')),
-          );
+          showAppSnackBar(context, message: 'No se pudo crear: $e');
           return;
         }
       }
@@ -129,36 +121,30 @@ class PlaylistsScreen extends StatelessWidget {
 
   Future<void> _renamePlaylist(BuildContext context, Playlist p) async {
     final controller = TextEditingController(text: p.name);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Renombrar playlist'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Nombre'),
-          onSubmitted: (v) => Navigator.of(context).pop(v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text),
-            child: const Text('Guardar'),
-          ),
-        ],
+    final name = await showAppDialog<String>(
+      context,
+      title: const Text('Renombrar playlist'),
+      content: AppTextField(
+        controller: controller,
+        autofocus: true,
+        label: 'Nombre',
+        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
       ),
+      actions: [
+        AppDialogAction(label: 'Cancelar'),
+        AppDialogAction(
+          label: 'Guardar',
+          getValue: () => controller.text.trim(),
+          isDefault: true,
+        ),
+      ],
     );
     if (name != null && name.trim().isNotEmpty && name.trim() != p.name) {
       try {
         await renamePlaylist(id: p.id, name: name.trim());
       } catch (e) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('No se pudo renombrar: $e')),
-          );
+          showAppSnackBar(context, message: 'No se pudo renombrar: $e');
           return;
         }
       }
@@ -169,23 +155,21 @@ class PlaylistsScreen extends StatelessWidget {
   }
 
   Future<void> _confirmDelete(BuildContext context, Playlist p) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Borrar playlist'),
-        content: Text(
-            '¿Borrar «${p.name}»?\nLas canciones se conservan en la biblioteca.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Borrar'),
-          ),
-        ],
+    final confirmed = await showAppDialog<bool>(
+      context,
+      title: const Text('Borrar playlist'),
+      content: Text(
+        '¿Borrar «${p.name}»?\nLas canciones se conservan en la biblioteca.',
       ),
+      actions: [
+        AppDialogAction<bool>(label: 'Cancelar', getValue: () => false),
+        AppDialogAction<bool>(
+          label: 'Borrar',
+          getValue: () => true,
+          isDefault: true,
+          isDestructive: true,
+        ),
+      ],
     );
     if (confirmed != true) return;
     if (!context.mounted) return;
@@ -195,9 +179,7 @@ class PlaylistsScreen extends StatelessWidget {
       await AppModelProvider.of(context).reloadPlaylists();
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo borrar: $e')),
-        );
+        showAppSnackBar(context, message: 'No se pudo borrar: $e');
       }
     }
   }

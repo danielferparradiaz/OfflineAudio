@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/rust/engine/models.dart';
@@ -37,8 +38,8 @@ class DownloadsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final model = AppModelProvider.of(context);
-    final subtle =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6);
+    final subtle = Theme.of(context).colorScheme.onSurface
+        .withValues(alpha: 0.6);
     final progress = model.downloads;
     final errors = model.downloadErrors;
     final completed = model.completed;
@@ -112,8 +113,7 @@ class DownloadsScreen extends StatelessWidget {
                             const SizedBox(height: 6),
                             LinearProgressIndicator(value: st.fraction),
                             const SizedBox(height: 6),
-                            Text(detail,
-                                style: const TextStyle(fontSize: 12)),
+                            Text(detail, style: const TextStyle(fontSize: 12)),
                           ],
                         ),
                         trailing: IconButton(
@@ -124,10 +124,9 @@ class DownloadsScreen extends StatelessWidget {
                               await cancelDownload(taskId: taskId);
                             } catch (e) {
                               if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                      content:
-                                          Text('No se pudo cancelar: $e')),
+                                showAppSnackBar(
+                                  context,
+                                  message: 'No se pudo cancelar: $e',
                                 );
                               }
                             }
@@ -142,24 +141,27 @@ class DownloadsScreen extends StatelessWidget {
                     return Card(
                       color: const Color(0xFF3A1F1F),
                       child: ListTile(
-                        leading: const Icon(Icons.error_outline,
-                            color: Colors.redAccent),
+                        leading: const Icon(
+                          Icons.error_outline,
+                          color: Colors.redAccent,
+                        ),
                         title: Text('Falló ${_shortId(taskId)}'),
-                        subtitle: Text(reason,
-                            maxLines: 4, overflow: TextOverflow.ellipsis),
+                        subtitle: Text(
+                          reason,
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                         trailing: IconButton(
                           icon: const Icon(Icons.close),
                           tooltip: 'Descartar',
-                          onPressed: () =>
-                              model.clearDownloadError(taskId),
+                          onPressed: () => model.clearDownloadError(taskId),
                         ),
                       ),
                     );
                   }),
                   if (completed.isNotEmpty) ...[
                     Padding(
-                      padding:
-                          const EdgeInsets.fromLTRB(8, 12, 8, 4),
+                      padding: const EdgeInsets.fromLTRB(8, 12, 8, 4),
                       child: Text(
                         'Completadas',
                         style: TextStyle(
@@ -195,11 +197,7 @@ class _CompletedCard extends StatelessWidget {
     return Card(
       child: ListTile(
         leading: const Icon(Icons.check_circle, color: Colors.greenAccent),
-        title: Text(
-          track.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
+        title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: const Text('Completada'),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
@@ -235,22 +233,25 @@ class _CompletedCard extends StatelessWidget {
       await _createPlaylistAndAdd(context, model);
       return;
     }
-    final chosen = await showModalBottomSheet<Playlist>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: ListView(
-          children: model.playlists
-              .map(
-                (p) => ListTile(
-                  leading: const Icon(Icons.queue_music),
-                  title: Text(p.name),
-                  subtitle: Text('${p.trackCount} canciones'),
-                  onTap: () => Navigator.of(context).pop(p),
-                ),
-              )
-              .toList(),
+    final chosen = await showAppBottomSheet<Playlist>(
+      context,
+      title: const Padding(
+        padding: EdgeInsets.only(top: 8),
+        child: Text(
+          'Añadir a playlist',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontWeight: FontWeight.w600),
         ),
       ),
+      items: [
+        for (final p in model.playlists)
+          AppSheetItem(
+            value: p,
+            icon: Icons.queue_music,
+            label: p.name,
+            subtitle: '${p.trackCount} canciones',
+          ),
+      ],
     );
     if (chosen == null || !context.mounted) return;
     await _addToChosen(context, chosen);
@@ -261,15 +262,11 @@ class _CompletedCard extends StatelessWidget {
     try {
       await addToPlaylist(playlistId: chosen.id, trackId: track.id);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Añadido a «${chosen.name}»')),
-        );
+        showAppSnackBar(context, message: 'Añadido a «${chosen.name}»');
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo añadir: $e')),
-        );
+        showAppSnackBar(context, message: 'No se pudo añadir: $e');
       }
     }
   }
@@ -277,30 +274,27 @@ class _CompletedCard extends StatelessWidget {
   /// No playlists exist yet: ask for a name, create it and add the track in a
   /// single step.
   Future<void> _createPlaylistAndAdd(
-      BuildContext context, AppModel model) async {
+    BuildContext context,
+    AppModel model,
+  ) async {
     final controller = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Nueva playlist'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Nombre'),
-          onSubmitted: (v) => Navigator.of(context).pop(v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Crear y añadir'),
-          ),
-        ],
+    final name = await showAppDialog<String>(
+      context,
+      title: const Text('Nueva playlist'),
+      content: AppTextField(
+        controller: controller,
+        autofocus: true,
+        label: 'Nombre',
+        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
       ),
+      actions: [
+        AppDialogAction(label: 'Cancelar'),
+        AppDialogAction(
+          label: 'Crear y añadir',
+          getValue: () => controller.text.trim(),
+          isDefault: true,
+        ),
+      ],
     );
     final trimmed = name?.trim() ?? '';
     if (trimmed.isEmpty || !context.mounted) return;
@@ -310,16 +304,14 @@ class _CompletedCard extends StatelessWidget {
       await model.reloadPlaylists();
       model.clearCompleted(taskId);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Creada «${pl.name}» y añadida la canción')),
+        showAppSnackBar(
+          context,
+          message: 'Creada «${pl.name}» y añadida la canción',
         );
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo crear la playlist: $e')),
-        );
+        showAppSnackBar(context, message: 'No se pudo crear la playlist: $e');
       }
     }
   }

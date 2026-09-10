@@ -9,7 +9,7 @@ use tokio::time::timeout;
 use crate::engine::models::ProbeInfo;
 use crate::engine::process::{child_log, ensure_yt_dlp, null, pipe, sanitize_url};
 
-const PROBE_TIMEOUT_SECS: u64 = 90;
+const PROBE_TIMEOUT_SECS: u64 = 180;
 
 fn json_str(v: &Value) -> Option<String> {
     match v {
@@ -90,8 +90,9 @@ pub async fn probe(url: &str) -> Result<ProbeInfo> {
             "--no-playlist",
             "--no-warnings",
             "--skip-download",
+            "--force-ipv4",
             "--socket-timeout",
-            "30",
+            "45",
             &url,
         ],
         null(),
@@ -105,7 +106,10 @@ pub async fn probe(url: &str) -> Result<ProbeInfo> {
     )
     .await
     .map_err(|_| {
-        anyhow::anyhow!("el análisis del enlace tardó demasiado (>{PROBE_TIMEOUT_SECS}s)")
+        anyhow::anyhow!(
+            "El análisis del enlace tardó demasiado (>{PROBE_TIMEOUT_SECS}s). \
+             Comprueba tu conexión e inténtalo de nuevo."
+        )
     })?
     .map_err(|e| {
         // Provide more context about the error
@@ -170,6 +174,7 @@ pub fn ytdlp_stream_args(url: &str) -> Vec<String> {
         "--newline".into(),
         "--no-colors".into(),
         "--no-playlist".into(),
+        "--force-ipv4".into(),
         "--socket-timeout".into(),
         "30".into(),
         url.to_string(),
@@ -186,6 +191,7 @@ pub fn ytdlp_disk_args(url: &str, dest_pattern: &str) -> Vec<String> {
         "--newline".into(),
         "--no-colors".into(),
         "--no-playlist".into(),
+        "--force-ipv4".into(),
         "--socket-timeout".into(),
         "30".into(),
         url.to_string(),
@@ -205,6 +211,7 @@ pub fn ytdlp_video_args(url: &str, dest_pattern: &str) -> Vec<String> {
         "--newline".into(),
         "--no-colors".into(),
         "--no-playlist".into(),
+        "--force-ipv4".into(),
         "--socket-timeout".into(),
         "30".into(),
         url.to_string(),

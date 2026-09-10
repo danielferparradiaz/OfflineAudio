@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/rust/engine/models.dart';
@@ -34,14 +35,13 @@ class TrackTile extends StatelessWidget {
       onDoubleTap: onPlay,
       child: Container(
         decoration: BoxDecoration(
+          borderRadius: BorderRadius.horizontal(left: Radius.circular(12)),
           border: selected
               ? const Border(left: BorderSide(color: Colors.amber, width: 3))
               : null,
           color: selected
-              ? Theme.of(context)
-                  .colorScheme
-                  .secondaryContainer
-                  .withValues(alpha: 0.2)
+              ? Theme.of(context).colorScheme.secondaryContainer
+                    .withValues(alpha: 0.2)
               : null,
         ),
         child: ListTile(
@@ -53,8 +53,7 @@ class TrackTile extends StatelessWidget {
                     width: 48,
                     height: 48,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, error, stack) =>
-                        const ThumbPlaceholder(),
+                    errorBuilder: (_, error, stack) => const ThumbPlaceholder(),
                   ),
                 )
               : const ThumbPlaceholder(),
@@ -67,8 +66,7 @@ class TrackTile extends StatelessWidget {
             [
               if (track.artist != null && track.artist!.isNotEmpty)
                 track.artist!,
-              if (track.album != null && track.album!.isNotEmpty)
-                track.album!,
+              if (track.album != null && track.album!.isNotEmpty) track.album!,
               _fmtDuration(track.durationSeconds),
             ].where((s) => s.isNotEmpty).join(' · '),
             maxLines: 1,
@@ -90,31 +88,17 @@ class TrackTile extends StatelessWidget {
                     if (isVideo)
                       Padding(
                         padding: const EdgeInsets.only(right: 4),
-                        child: Icon(Icons.videocam,
-                            size: 16,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withValues(alpha: 0.5)),
+                        child: Icon(
+                          Icons.videocam,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.onSurface
+                              .withValues(alpha: 0.5),
+                        ),
                       ),
-                    PopupMenuButton<String>(
-                      onSelected: (value) {
-                        if (value == 'add_playlist') {
-                          _openAddToPlaylist(context);
-                        } else if (value == 'delete') {
-                          _deleteTrack(context);
-                        }
-                      },
-                      itemBuilder: (context) => const [
-                        PopupMenuItem(
-                          value: 'add_playlist',
-                          child: Text('Añadir a playlist'),
-                        ),
-                        PopupMenuItem(
-                          value: 'delete',
-                          child: Text('Eliminar'),
-                        ),
-                      ],
+                    IconButton(
+                      icon: const Icon(Icons.more_vert),
+                      tooltip: 'Más opciones',
+                      onPressed: () => _openActions(context),
                     ),
                     IconButton(
                       icon: const Icon(Icons.play_arrow),
@@ -127,64 +111,80 @@ class TrackTile extends StatelessWidget {
     );
   }
 
+  Future<void> _openActions(BuildContext context) async {
+    final action = await showAppBottomSheet<String>(
+      context,
+      items: const [
+        AppSheetItem(
+          value: 'add_playlist',
+          icon: Icons.queue_music,
+          label: 'Añadir a playlist',
+        ),
+        AppSheetItem(
+          value: 'delete',
+          icon: Icons.delete_outline,
+          label: 'Eliminar',
+          destructive: true,
+        ),
+      ],
+    );
+    if (!context.mounted) return;
+    if (action == 'add_playlist') {
+      await _openAddToPlaylist(context);
+    } else if (action == 'delete') {
+      await _deleteTrack(context);
+    }
+  }
+
   Future<void> _openAddToPlaylist(BuildContext context) async {
     final model = AppModelProvider.of(context);
     if (model.playlists.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Primero crea una playlist')),
-      );
+      showAppSnackBar(context, message: 'Primero crea una playlist');
       return;
     }
-    final chosen = await showModalBottomSheet<Playlist>(
-      context: context,
-      builder: (context) => ListView(
-        children: model.playlists
-            .map(
-              (p) => ListTile(
-                leading: const Icon(Icons.queue_music),
-                title: Text(p.name),
-                onTap: () => Navigator.of(context).pop(p),
-              ),
-            )
-            .toList(),
+    final chosen = await showAppBottomSheet<Playlist>(
+      context,
+      title: const Padding(
+        padding: EdgeInsets.only(top: 8),
+        child: Text(
+          'Añadir a playlist',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
       ),
+      items: [
+        for (final p in model.playlists)
+          AppSheetItem(value: p, icon: Icons.queue_music, label: p.name),
+      ],
     );
     if (chosen != null) {
       try {
         await addToPlaylist(playlistId: chosen.id, trackId: track.id);
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Añadido a «${chosen.name}»')),
-          );
+          showAppSnackBar(context, message: 'Añadido a «${chosen.name}»');
         }
       } catch (e) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('No se pudo añadir: $e')),
-          );
+          showAppSnackBar(context, message: 'No se pudo añadir: $e');
         }
       }
     }
   }
 
   Future<void> _deleteTrack(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Eliminar'),
-        content:
-            Text('¿Eliminar «${track.title}»?\nSe borrarán sus archivos.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Eliminar'),
-          ),
-        ],
-      ),
+    final confirmed = await showAppDialog<bool>(
+      context,
+      title: const Text('Eliminar'),
+      content: Text('¿Eliminar «${track.title}»?\nSe borrarán sus archivos.'),
+      actions: [
+        AppDialogAction<bool>(label: 'Cancelar', getValue: () => false),
+        AppDialogAction<bool>(
+          label: 'Eliminar',
+          getValue: () => true,
+          isDefault: true,
+          isDestructive: true,
+        ),
+      ],
     );
     if (confirmed == true) {
       await deleteTrack(id: track.id);

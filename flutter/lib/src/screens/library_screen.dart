@@ -1,16 +1,14 @@
 import 'dart:ui' show ImageFilter;
 
+import 'package:flutter/cupertino.dart' show CupertinoActivityIndicator;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/engine/models.dart';
 import 'package:offline_audio_app/src/screens/screens.dart';
 import 'package:offline_audio_app/src/search/search.dart';
 import 'package:offline_audio_app/src/widgets/widgets.dart';
-
-class _TogglePlayIntent extends Intent {
-  const _TogglePlayIntent();
-}
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -52,9 +50,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _serveLibrary() async {
-    debugPrint('[LibrarySearch] _serveLibrary hash=$hashCode '
-        'llamado, limpio búsqueda. Stack:\n'
-        '${StackTrace.current.toString().split('\n').take(8).join('\n')}');
+    debugPrint(
+      '[LibrarySearch] _serveLibrary hash=$hashCode '
+      'llamado, limpio búsqueda. Stack:\n'
+      '${StackTrace.current.toString().split('\n').take(8).join('\n')}',
+    );
     _searchController.clear();
     setState(() {
       _results = null;
@@ -86,7 +86,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       final results = await YoutubeSearch.search(q);
       sw.stop();
       debugPrint(
-          '[LibrarySearch] OK query="$q" resultados=${results.length} en ${sw.elapsedMilliseconds}ms');
+        '[LibrarySearch] OK query="$q" resultados=${results.length} en ${sw.elapsedMilliseconds}ms',
+      );
       if (!mounted) {
         debugPrint('[LibrarySearch] descartado: widget desmontado');
         return;
@@ -96,17 +97,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
         _results = results;
         _lastElapsedMs = sw.elapsedMilliseconds;
       });
-      debugPrint('[LibrarySearch] setState resultados hash=$hashCode '
-          'mounted=$mounted count=${results.length}');
+      debugPrint(
+        '[LibrarySearch] setState resultados hash=$hashCode '
+        'mounted=$mounted count=${results.length}',
+      );
     } catch (e, st) {
       sw.stop();
       debugPrint(
-          '[LibrarySearch] ERROR query="$q" tras ${sw.elapsedMilliseconds}ms: $e\n$st');
+        '[LibrarySearch] ERROR query="$q" tras ${sw.elapsedMilliseconds}ms: $e\n$st',
+      );
       if (!mounted) return;
       setState(() {
         _searching = false;
         _lastElapsedMs = sw.elapsedMilliseconds;
-        _searchError = 'No se pudo completar la búsqueda. Revisa tu conexión '
+        _searchError =
+            'No se pudo completar la búsqueda. Revisa tu conexión '
             'e inténtalo de nuevo.\n($e)';
       });
     }
@@ -117,7 +122,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<void> _preview(SearchResult r, {required bool video}) async {
     if (_previewBusy) return;
     final model = AppModelProvider.of(context);
-    final messenger = ScaffoldMessenger.of(context);
     setState(() => _previewBusy = true);
     try {
       final url = video
@@ -139,11 +143,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
         );
       }
     } catch (e, st) {
-      debugPrint('[LibrarySearch] avance ${video ? 'vídeo' : 'audio'} '
-          'falló: $e\n$st');
+      debugPrint(
+        '[LibrarySearch] avance ${video ? 'vídeo' : 'audio'} '
+        'falló: $e\n$st',
+      );
       if (mounted) {
-        messenger.showSnackBar(
-          SnackBar(content: Text('No se pudo reproducir el avance: $e')),
+        showAppSnackBar(
+          context,
+          message: 'No se pudo reproducir el avance: $e',
         );
       }
     } finally {
@@ -154,65 +161,31 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// Hoja con las 4 acciones de un resultado: avance (audio/vídeo) y
   /// descarga (audio/vídeo), más la tarjeta con miniatura y título.
   Future<void> _openResultActions(SearchResult r) async {
-    final scheme = Theme.of(context).colorScheme;
-    final subtle = scheme.onSurface.withValues(alpha: 0.55);
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: Image.network(
-                  r.thumbnailUrl,
-                  width: 52,
-                  height: 52,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, error, stack) => const SizedBox(
-                    width: 52,
-                    height: 52,
-                    child: ColoredBox(
-                      color: Color(0xFF2A2A2A),
-                      child: Icon(Icons.music_note, color: Colors.white54),
-                    ),
-                  ),
-                ),
-              ),
-              title: Text(r.title, maxLines: 2, overflow: TextOverflow.ellipsis),
-              subtitle: Text(
-                r.author,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: subtle),
-              ),
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.play_arrow),
-              title: const Text('Escuchar avance'),
-              onTap: () => Navigator.of(context).pop('play_audio'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.videocam_outlined),
-              title: const Text('Ver avance'),
-              onTap: () => Navigator.of(context).pop('play_video'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.download),
-              title: const Text('Descargar audio'),
-              onTap: () => Navigator.of(context).pop('dl_audio'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.movie_creation_outlined),
-              title: const Text('Descargar vídeo'),
-              onTap: () => Navigator.of(context).pop('dl_video'),
-            ),
-          ],
+    final action = await showAppBottomSheet<String>(
+      context,
+      title: _resultSheetHeader(r),
+      items: const [
+        AppSheetItem(
+          value: 'play_audio',
+          icon: Icons.play_arrow,
+          label: 'Escuchar avance',
         ),
-      ),
+        AppSheetItem(
+          value: 'play_video',
+          icon: Icons.videocam_outlined,
+          label: 'Ver avance',
+        ),
+        AppSheetItem(
+          value: 'dl_audio',
+          icon: Icons.download,
+          label: 'Descargar audio',
+        ),
+        AppSheetItem(
+          value: 'dl_video',
+          icon: Icons.movie_creation_outlined,
+          label: 'Descargar vídeo',
+        ),
+      ],
     );
     if (action == null || !mounted) return;
     switch (action) {
@@ -227,29 +200,70 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
+  Widget _resultSheetHeader(SearchResult r) {
+    final subtle = Theme.of(context).colorScheme.onSurface
+        .withValues(alpha: 0.55);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.network(
+            r.thumbnailUrl,
+            width: 72,
+            height: 72,
+            fit: BoxFit.cover,
+            errorBuilder: (_, error, stack) => Container(
+              width: 72,
+              height: 72,
+              color: const Color(0xFF2A2A2A),
+              child: const Icon(Icons.music_note, color: Colors.white54),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          r.title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          r.author,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12, color: subtle),
+        ),
+      ],
+    );
+  }
+
   Future<void> _startDownload(SearchResult result, ContentKind kind) async {
     try {
       final model = AppModelProvider.of(context);
       final taskId = await model.downloadFromUrl(result.url, kind: kind);
       if (!mounted) return;
       final short = taskId.length <= 8 ? taskId : taskId.substring(0, 8);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Descarga iniciada ($short). Ver pestaña Descargas.'),
-        ),
+      showAppSnackBar(
+        context,
+        message: 'Descarga iniciada ($short). Ver pestaña Descargas.',
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo iniciar la descarga: $e')),
-      );
+      showAppSnackBar(context, message: 'No se pudo iniciar la descarga: $e');
     }
   }
 
   /// Reproduce un track; si es vídeo, abre directamente el reproductor de
   /// vídeo (que además garantiza su propia reproducción).
   static Future<void> openTrack(
-      BuildContext context, AppModel model, Track track) async {
+    BuildContext context,
+    AppModel model,
+    Track track,
+  ) async {
     if (track.contentKind == 'video') {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => VideoPlayerScreen(track: track)),
@@ -265,59 +279,54 @@ class _LibraryScreenState extends State<LibraryScreen> {
     // Solo log cuando hay búsqueda en juego (fase spinner / error). El
     // rebuild por cada notify del AppModel spamearía la consola en reposo.
     if (_searching || _searchError != null) {
-      debugPrint('[LibrarySearch] build hash=$hashCode searching=$_searching '
-          'results=${_results?.length} error=${_searchError != null} '
-          'query=$_activeQuery lib=${model.library.length}');
+      debugPrint(
+        '[LibrarySearch] build hash=$hashCode searching=$_searching '
+        'results=${_results?.length} error=${_searchError != null} '
+        'query=$_activeQuery lib=${model.library.length}',
+      );
     }
 
     return SafeArea(
-      child: Shortcuts(
-        shortcuts: {
-          SingleActivator(LogicalKeyboardKey.space): const _TogglePlayIntent(),
+      child: Focus(
+        autofocus: true,
+        focusNode: _listFocusNode,
+        onKeyEvent: (node, event) {
+          // Espacio alterna play/pause SOLO cuando el foco es la propia
+          // lista. Mientras se escribe en el buscador (foco en el campo), el
+          // evento nunca se reclama y el espacio se inserta con normalidad.
+          if (event is KeyDownEvent &&
+              event.logicalKey == LogicalKeyboardKey.space &&
+              FocusManager.instance.primaryFocus == _listFocusNode) {
+            AppModelProvider.of(context).togglePause();
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
         },
-        child: Actions(
-          actions: {
-            _TogglePlayIntent: CallbackAction<_TogglePlayIntent>(
-              onInvoke: (_) {
-                final m = AppModelProvider.of(context);
-                m.togglePause();
-                return null;
-              },
-            ),
-          },
-          child: Focus(
-            autofocus: true,
-            focusNode: _listFocusNode,
-            onKeyEvent: (node, event) {
-              // Keyboard navigation for arrow keys is handled via selection state.
-              return KeyEventResult.ignored;
-            },
-            child: Column(
-              children: [
-                _buildFrostedTop(context),
-                Expanded(child: _buildContent(context, model)),
-              ],
-            ),
-          ),
+        child: Column(
+          children: [
+            _buildFrostedTop(context),
+            Expanded(child: _buildContent(context, model)),
+          ],
         ),
       ),
     );
   }
 
   Widget _buildContent(BuildContext context, AppModel model) {
-    final subtle =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6);
+    final subtle = Theme.of(context).colorScheme.onSurface
+        .withValues(alpha: 0.6);
     if (_searching) {
       return SearchFeedback(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Center(child: CircularProgressIndicator()),
-            const SizedBox(height: 12),
-            Text(
-              'Buscando…',
-              style: TextStyle(color: subtle, fontSize: 12),
+            Center(
+              child: isApplePlatform
+                  ? const CupertinoActivityIndicator()
+                  : const CircularProgressIndicator(),
             ),
+            const SizedBox(height: 12),
+            Text('Buscando…', style: TextStyle(color: subtle, fontSize: 12)),
           ],
         ),
       );
@@ -325,7 +334,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (_searchError != null) {
       return SearchFeedback(
         child: SearchError(
-          message: '«${_activeQuery ?? ''}»'
+          message:
+              '«${_activeQuery ?? ''}»'
               '${_lastElapsedMs != null ? ' · ${_lastElapsedMs}ms' : ''}\n'
               '${_searchError!}',
           onRetry: _searchNow,
@@ -341,14 +351,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Widget _buildResults(
-      BuildContext context, AppModel model, List<SearchResult> results) {
+    BuildContext context,
+    AppModel model,
+    List<SearchResult> results,
+  ) {
     final elapsed = _lastElapsedMs;
-    final subtle =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55);
+    final subtle = Theme.of(context).colorScheme.onSurface
+        .withValues(alpha: 0.55);
     return ListView(
       padding: const EdgeInsets.only(top: 8, bottom: 8),
       children: [
-        SearchHeader(query: _activeQuery ?? '', onClose: _serveLibrary),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+          child: Text(
+            'Resultados para «${_activeQuery ?? ''}»',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+        ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
           child: Text(
@@ -364,8 +385,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.search_off,
-                    size: 48, color: subtle.withValues(alpha: 0.5)),
+                Icon(
+                  Icons.search_off,
+                  size: 48,
+                  color: subtle.withValues(alpha: 0.5),
+                ),
                 const SizedBox(height: 12),
                 Text(
                   'Sin resultados para «${_activeQuery ?? ''}»\n'
@@ -424,10 +448,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildHeader(context),
-              _buildSearchField(context),
-            ],
+            children: [_buildHeader(context), _buildSearchField(context)],
           ),
         ),
       ),
@@ -435,8 +456,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Widget _buildHeader(BuildContext context) {
-    final subtle =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55);
+    final subtle = Theme.of(context).colorScheme.onSurface
+        .withValues(alpha: 0.55);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 8, 2),
       child: Row(
@@ -451,19 +472,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ),
             ),
           ),
-          Builder(
-            builder: (context) => InkWell(
-              onTap: () => Scaffold.of(context).openEndDrawer(),
-              borderRadius: BorderRadius.circular(24),
-              child: const Padding(
-                padding: EdgeInsets.all(4),
-                child: CircleAvatar(
-                  radius: 16,
-                  child: Icon(Icons.person, size: 20),
+          // En Apple la cabecera no lleva avatar: los ajustes (con la info de
+          // usuario) están en el sidebar/tab. En Material mantiene el acceso
+          // al cajón de ajustes.
+          if (!isApplePlatform)
+            Builder(
+              builder: (context) => InkWell(
+                onTap: () => Scaffold.of(context).openEndDrawer(),
+                borderRadius: BorderRadius.circular(24),
+                child: const Padding(
+                  padding: EdgeInsets.all(4),
+                  child: CircleAvatar(
+                    radius: 16,
+                    child: Icon(Icons.person, size: 20),
+                  ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -472,102 +497,26 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget _buildSearchField(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-      child: TextField(
+      child: AppSearchField(
         controller: _searchController,
-        decoration: InputDecoration(
-          prefixIcon: IconButton(
-            icon: const Icon(Icons.search),
-            tooltip: 'Buscar en YouTube',
-            onPressed: _searchNow,
-          ),
-          hintText: 'Buscar',
-          filled: true,
-          fillColor: Theme.of(context)
-              .colorScheme
-              .onSurface
-              .withValues(alpha: 0.08),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(26),
-            borderSide: BorderSide.none,
-          ),
-        ),
-        textInputAction: TextInputAction.search,
-        onSubmitted: (_) => _searchNow(),
+        onSearch: _searchNow,
+        onChanged: (value) {
+          // La X del buscador está vaciando el campo: si estábamos viendo
+          // resultados, cerramos la búsqueda y volvemos a la biblioteca.
+          if (value.isEmpty && _activeQuery != null) _serveLibrary();
+        },
       ),
     );
   }
 
   Widget _buildList(BuildContext context, AppModel model, List<Track> tracks) {
-    // "Reciente": songs just downloaded this session (kept in
-    // `model.completed` until the library reload lands) plus anything the
-    // library reports as downloaded in the last 24 hours.
-    final seen = <String>{};
-    final recent = <Track>[];
-    for (final t in model.completed.values) {
-      if (seen.add(t.id)) recent.add(t);
-    }
-    final now = DateTime.now().toUtc();
-    for (final t in tracks) {
-      final downloaded = DateTime.tryParse(t.downloadDate)?.toUtc();
-      if (downloaded != null &&
-          now.difference(downloaded) < const Duration(hours: 24) &&
-          seen.add(t.id)) {
-        recent.add(t);
-      }
-    }
-
-    if (tracks.isEmpty && recent.isEmpty) {
+    if (tracks.isEmpty) {
       return const EmptyLibrary();
-    }
-    if (_selectedTrackId == null && recent.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _selectedTrackId = recent.first.id);
-      });
     }
     return ListView(
       padding: const EdgeInsets.only(top: 8, bottom: 8),
       children: [
-        if (recent.isNotEmpty) ...[
-          SectionHeader(
-            'Reciente',
-            trailing: TextButton.icon(
-              onPressed: model.shuffleLibrary,
-              icon: const Icon(Icons.shuffle, size: 18),
-              label: const Text('Aleatorio'),
-              style: TextButton.styleFrom(
-                foregroundColor: Theme.of(context).colorScheme.primary,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  side: BorderSide(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .primary
-                        .withValues(alpha: 0.3),
-                    width: 1,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          RecentBanner(
-            track: recent.first,
-            selected: _selectedTrackId == recent.first.id,
-            onPlay: () => openTrack(context, model, recent.first),
-            onSelect: () => setState(() => _selectedTrackId = recent.first.id),
-          ),
-          ...recent
-              .skip(1)
-              .map(
-                (t) => TrackTile(
-                    track: t,
-                    selected: _selectedTrackId == t.id,
-                    onPlay: () => openTrack(context, model, t),
-                    onSelect: () => setState(() => _selectedTrackId = t.id)),
-              ),
-          if (tracks.isNotEmpty) const SectionHeader('Biblioteca'),
-        ],
+        const SectionHeader('Biblioteca'),
         ...tracks.map(
           (t) => TrackTile(
             track: t,

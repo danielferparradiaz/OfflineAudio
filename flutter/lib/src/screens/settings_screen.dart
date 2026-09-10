@@ -1,7 +1,8 @@
+import 'package:flutter/cupertino.dart' show CupertinoSegmentedControl;
 import 'package:flutter/material.dart';
+import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/settings.dart';
-import 'package:offline_audio_app/src/widgets/widgets.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -51,7 +52,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _ytdlpMessage = 'Error cargando configuración: ${e.toString()}');
+        setState(
+          () => _ytdlpMessage = 'Error cargando configuración: ${e.toString()}',
+        );
       }
     }
   }
@@ -80,184 +83,183 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _downloadBinaries() async {
     setState(() => _downloading = true);
-    final messenger = ScaffoldMessenger.of(context);
     try {
       await downloadMobileBinaries();
       final status = await binariesStatus();
       if (mounted) setState(() => _bins = status);
-      messenger.showSnackBar(const SnackBar(content: Text('Paquetes instalados')));
+      if (mounted) showAppSnackBar(context, message: 'Paquetes instalados');
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('No se pudo descargar: $e')));
+      if (mounted) {
+        showAppSnackBar(context, message: 'No se pudo descargar: $e');
+      }
     } finally {
       if (mounted) setState(() => _downloading = false);
     }
   }
 
-  Future<void> _pickAccentColor() async {
-    final settings = SettingsScope.of(context);
-    final current = Color(settings.accent);
-    final picked = await showColorPickerDialog(
-      context,
-      title: 'Color de los botones',
-      initial: current,
-    );
-    if (picked != null) settings.setAccent(picked.toARGB32());
-  }
-
-  Future<void> _pickBackgroundColor() async {
-    final settings = SettingsScope.of(context);
-    final current =
-        settings.hasCustomBackground ? Color(settings.background!) : Colors.grey;
-    final picked = await showColorPickerDialog(
-      context,
-      title: 'Color de fondo',
-      initial: current,
-      swatches: kGrayscaleSwatches,
-    );
-    if (picked != null) settings.setBackground(picked.toARGB32());
-  }
-
   @override
   Widget build(BuildContext context) {
     final settings = SettingsScope.of(context);
-    return Scaffold(
-      appBar: AppBar(title: const Text('Ajustes')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            _SectionTitle('Apariencia'),
-            _buildAppearance(settings),
-            const Divider(),
-            _SectionTitle('Paquetes del motor'),
-            _buildBinaries(settings),
-            const Divider(),
-            _SectionTitle('Aplicación'),
-            ListTile(
-              leading: const Icon(Icons.download_for_offline_outlined),
-              title: const Text('Comprobar yt-dlp'),
-              subtitle: Text(_ytdlpSubtitle()),
-              trailing: _checking
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : IconButton(
-                      icon: const Icon(Icons.refresh),
-                      onPressed: _checkYtdlp,
-                    ),
+    final body = SingleChildScrollView(
+      padding: EdgeInsets.all(isApplePlatform ? 20 : 16),
+      child: Column(
+        children: [
+          _buildUserInfo(context),
+          _SectionTitle('Apariencia'),
+          _buildAppearance(settings),
+          const SizedBox(height: 12),
+          const Divider(),
+          _SectionTitle('Paquetes del motor'),
+          _buildBinaries(settings),
+          const Divider(),
+          _SectionTitle('Aplicación'),
+          ListTile(
+            leading: const Icon(Icons.download_for_offline_outlined),
+            title: const Text('Comprobar yt-dlp'),
+            subtitle: Text(_ytdlpSubtitle()),
+            trailing: _checking
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.refresh),
+                    onPressed: _checkYtdlp,
+                  ),
+          ),
+          if (_ytdlpMessage != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                _ytdlpMessage!,
+                style: TextStyle(color: Theme.of(context).colorScheme.primary),
+              ),
             ),
-            if (_ytdlpMessage != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  _ytdlpMessage!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.primary),
-                ),
-              ),
-            const Divider(),
-            _SectionTitle('Almacenamiento'),
-            if (_dirs != null) ...[
-              ListTile(
-                leading: const Icon(Icons.folder),
-                title: const Text('Biblioteca (canciones .opus)'),
-                subtitle: Text(_dirs!.cache),
-              ),
-              ListTile(
-                leading: const Icon(Icons.image_outlined),
-                title: const Text('Miniaturas'),
-                subtitle: Text(_dirs!.thumbs),
-              ),
-              ListTile(
-                leading: const Icon(Icons.storage),
-                title: const Text('Temporal'),
-                subtitle: Text(_dirs!.tmp),
-              ),
-            ],
-            const Divider(),
+          const Divider(),
+          _SectionTitle('Almacenamiento'),
+          if (_dirs != null) ...[
             ListTile(
-              leading: const Icon(Icons.info_outline),
-              title: const Text('Acerca de'),
-              subtitle: const Text('OfflineAudio 1.0 · uso personal.\n'
-                  'Uso exclusivo de contenidos que tienes derecho a descargar.'),
+              leading: const Icon(Icons.folder),
+              title: const Text('Biblioteca (canciones .opus)'),
+              subtitle: Text(_dirs!.cache),
+            ),
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('Miniaturas'),
+              subtitle: Text(_dirs!.thumbs),
+            ),
+            ListTile(
+              leading: const Icon(Icons.storage),
+              title: const Text('Temporal'),
+              subtitle: Text(_dirs!.tmp),
             ),
           ],
-        ),
+        ],
+      ),
+    );
+    return AppPage(title: 'Ajustes', body: body);
+  }
+
+  Widget _buildUserInfo(BuildContext context) {
+    final subtle = Theme.of(context).colorScheme.onSurface
+        .withValues(alpha: 0.6);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          const CircleAvatar(radius: 24, child: Icon(Icons.person, size: 28)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'OfflineAudio',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'OfflineAudio 1.0 · uso personal.\n'
+                  'Uso exclusivo de contenidos que tienes derecho a descargar.',
+                  style: TextStyle(fontSize: 12, color: subtle),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildAppearance(SettingsController settings) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: SegmentedButton<ThemeMode>(
-            segments: const [
-              ButtonSegment(
-                value: ThemeMode.light,
-                icon: Icon(Icons.light_mode_outlined),
-                label: Text('Claro'),
-              ),
-              ButtonSegment(
-                value: ThemeMode.dark,
-                icon: Icon(Icons.dark_mode_outlined),
-                label: Text('Oscuro'),
-              ),
-              ButtonSegment(
-                value: ThemeMode.system,
-                icon: Icon(Icons.brightness_auto_outlined),
-                label: Text('Sistema'),
-              ),
-            ],
-            selected: {settings.themeMode},
-            onSelectionChanged: (s) => settings.setThemeMode(s.first),
-            showSelectedIcon: false,
+    final Widget segmented;
+    if (isApplePlatform) {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+      final textColor = Theme.of(context).colorScheme.onSurface;
+      segmented = CupertinoSegmentedControl<ThemeMode>(
+        groupValue: settings.themeMode,
+        onValueChanged: settings.setThemeMode,
+        selectedColor: Color(settings.accent),
+        unselectedColor: isDark
+            ? const Color(0x26FFFFFF)
+            : const Color(0x0A000000),
+        borderColor: isDark ? const Color(0x33FFFFFF) : const Color(0x1A000000),
+        children: {
+          ThemeMode.light: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text('Claro', style: TextStyle(color: textColor)),
           ),
-        ),
-        const SizedBox(height: 8),
-        ListTile(
-          leading: Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: Color(settings.accent),
-              shape: BoxShape.circle,
-              border: Border.all(color: Theme.of(context).colorScheme.outline),
+          ThemeMode.dark: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text('Oscuro', style: TextStyle(color: textColor)),
+          ),
+          ThemeMode.system: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text('Sistema', style: TextStyle(color: textColor)),
+          ),
+        },
+      );
+    } else {
+      segmented = SegmentedButton<ThemeMode>(
+        segments: const [
+          ButtonSegment(
+            value: ThemeMode.light,
+            icon: Icon(Icons.light_mode_outlined),
+            label: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Text('Claro'),
             ),
           ),
-          title: const Text('Color de los botones'),
-          subtitle: const Text('Acento principal de la app'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: _pickAccentColor,
-        ),
-        ListTile(
-          leading: Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: settings.hasCustomBackground
-                  ? Color(settings.background!)
-                  : null,
-              shape: BoxShape.circle,
-              border: Border.all(color: Theme.of(context).colorScheme.outline),
+          ButtonSegment(
+            value: ThemeMode.dark,
+            icon: Icon(Icons.dark_mode_outlined),
+            label: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Text('Oscuro'),
             ),
           ),
-          title: const Text('Color de fondo'),
-          subtitle: Text(settings.hasCustomBackground
-              ? 'Personalizado'
-              : 'Predeterminado según el modo'),
-          trailing: settings.hasCustomBackground
-              ? IconButton(
-                  icon: const Icon(Icons.settings_backup_restore),
-                  tooltip: 'Restablecer',
-                  onPressed: () => settings.setBackground(null),
-                )
-              : const Icon(Icons.chevron_right),
-          onTap: _pickBackgroundColor,
-        ),
-      ],
+          ButtonSegment(
+            value: ThemeMode.system,
+            icon: Icon(Icons.brightness_auto_outlined),
+            label: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Text('Sistema'),
+            ),
+          ),
+        ],
+        selected: {settings.themeMode},
+        onSelectionChanged: (s) => settings.setThemeMode(s.first),
+        showSelectedIcon: false,
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: segmented,
     );
   }
 

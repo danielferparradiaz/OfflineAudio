@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/screens/screens.dart';
 
@@ -68,10 +70,8 @@ class PlayerBar extends StatelessWidget {
           width: 36,
           height: 36,
           fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => Icon(
-            isVideo ? Icons.videocam : Icons.music_note,
-            color: subtle,
-          ),
+          errorBuilder: (_, _, _) =>
+              Icon(isVideo ? Icons.videocam : Icons.music_note, color: subtle),
         ),
       );
     } else {
@@ -86,8 +86,9 @@ class PlayerBar extends StatelessWidget {
     final maxMs = duration.inMilliseconds > 0
         ? duration.inMilliseconds.toDouble()
         : 1.0;
-    final posMs =
-        position.inMilliseconds.clamp(0, duration.inMilliseconds).toDouble();
+    final posMs = position.inMilliseconds
+        .clamp(0, duration.inMilliseconds)
+        .toDouble();
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 4, 8, 4),
@@ -105,12 +106,7 @@ class PlayerBar extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontWeight: model.isPlaying
-                            ? FontWeight.w600
-                            : FontWeight.normal,
-                      ),
+                      style: TextStyle(color: scheme.onSurface),
                       overflow: TextOverflow.ellipsis,
                       maxLines: 1,
                     ),
@@ -188,15 +184,26 @@ class PlayerBar extends StatelessWidget {
                 ),
               ),
               Expanded(
-                child: Slider(
-                  min: 0,
-                  max: maxMs,
-                  value: duration.inMilliseconds > 0 ? posMs : 0,
-                  onChanged: duration.inMilliseconds > 0
-                      ? (v) => model.seek(
-                          Duration(milliseconds: v.toInt()))
-                      : null,
-                ),
+                child: isApplePlatform
+                    ? CupertinoSlider(
+                        min: 0,
+                        max: maxMs,
+                        value: duration.inMilliseconds > 0 ? posMs : 0,
+                        activeColor: scheme.primary,
+                        onChanged: duration.inMilliseconds > 0
+                            ? (v) =>
+                                  model.seek(Duration(milliseconds: v.toInt()))
+                            : null,
+                      )
+                    : Slider(
+                        min: 0,
+                        max: maxMs,
+                        value: duration.inMilliseconds > 0 ? posMs : 0,
+                        onChanged: duration.inMilliseconds > 0
+                            ? (v) =>
+                                  model.seek(Duration(milliseconds: v.toInt()))
+                            : null,
+                      ),
               ),
               SizedBox(
                 width: 46,
