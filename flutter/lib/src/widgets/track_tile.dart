@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:hugeicons/hugeicons.dart';
 import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
@@ -37,7 +38,7 @@ class TrackTile extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.horizontal(left: Radius.circular(12)),
           border: selected
-              ? const Border(left: BorderSide(color: Colors.amber, width: 3))
+              ? const Border(left: BorderSide(color: Colors.amber, width: 0.7))
               : null,
           color: selected
               ? Theme.of(context).colorScheme.secondaryContainer
@@ -75,7 +76,7 @@ class TrackTile extends StatelessWidget {
           trailing: selected
               ? FilledButton.icon(
                   onPressed: onPlay,
-                  icon: const Icon(Icons.play_arrow_rounded),
+                  icon: const HugeIcon(icon: HugeIcons.strokeRoundedPlay),
                   label: const Text('Escuchar'),
                   style: FilledButton.styleFrom(
                     backgroundColor: const Color(0xFF14432E),
@@ -88,20 +89,22 @@ class TrackTile extends StatelessWidget {
                     if (isVideo)
                       Padding(
                         padding: const EdgeInsets.only(right: 4),
-                        child: Icon(
-                          Icons.videocam,
+                        child: HugeIcon(
+                          icon: HugeIcons.strokeRoundedCameraVideo,
                           size: 16,
                           color: Theme.of(context).colorScheme.onSurface
                               .withValues(alpha: 0.5),
                         ),
                       ),
                     IconButton(
-                      icon: const Icon(Icons.more_vert),
+                      icon: const HugeIcon(
+                        icon: HugeIcons.strokeRoundedMoreVertical,
+                      ),
                       tooltip: 'Más opciones',
                       onPressed: () => _openActions(context),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.play_arrow),
+                      icon: const HugeIcon(icon: HugeIcons.strokeRoundedPlay),
                       onPressed: onPlay,
                     ),
                   ],
@@ -117,12 +120,12 @@ class TrackTile extends StatelessWidget {
       items: const [
         AppSheetItem(
           value: 'add_playlist',
-          icon: Icons.queue_music,
+          icon: HugeIcons.strokeRoundedQueue01,
           label: 'Añadir a playlist',
         ),
         AppSheetItem(
           value: 'delete',
-          icon: Icons.delete_outline,
+          icon: HugeIcons.strokeRoundedDelete01,
           label: 'Eliminar',
           destructive: true,
         ),
@@ -154,7 +157,11 @@ class TrackTile extends StatelessWidget {
       ),
       items: [
         for (final p in model.playlists)
-          AppSheetItem(value: p, icon: Icons.queue_music, label: p.name),
+          AppSheetItem(
+            value: p,
+            icon: HugeIcons.strokeRoundedQueue01,
+            label: p.name,
+          ),
       ],
     );
     if (chosen != null) {

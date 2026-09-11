@@ -91,9 +91,10 @@ class AppModel extends ChangeNotifier {
 
   /// Download any supported URL directly, bypassing the probe flow of the
   /// settings screen. `kind` selects an audio (music/speech) vs video task.
-  Future<String> downloadFromUrl(String url,
-          {ContentKind kind = ContentKind.music}) async =>
-      startDownload(url: url, kind: kind);
+  Future<String> downloadFromUrl(
+    String url, {
+    ContentKind kind = ContentKind.music,
+  }) async => startDownload(url: url, kind: kind);
 
   AppModel();
 
@@ -102,8 +103,9 @@ class AppModel extends ChangeNotifier {
   Map<String, DownloadState> get downloads => Map.unmodifiable(_downloads);
 
   /// Backwards-compat for existing callers: taskId -> percent 0..100.
-  Map<String, double> get downloadProgress =>
-      Map.unmodifiable({for (final e in _downloads.entries) e.key: e.value.percent});
+  Map<String, double> get downloadProgress => Map.unmodifiable({
+    for (final e in _downloads.entries) e.key: e.value.percent,
+  });
 
   Map<String, String> get downloadErrors => Map.unmodifiable(_downloadErrors);
 
@@ -168,8 +170,10 @@ class AppModel extends ChangeNotifier {
     );
   }
 
-  Future<void> reloadLibrary(
-      {String? search, SortOrder order = SortOrder.dateDesc}) async {
+  Future<void> reloadLibrary({
+    String? search,
+    SortOrder order = SortOrder.dateDesc,
+  }) async {
     final tracks = await getLibrary(search: search, order: order);
     _library
       ..clear()
@@ -188,13 +192,13 @@ class AppModel extends ChangeNotifier {
   void _onEvent(Event ev) {
     switch (ev) {
       case Event_DownloadProgress(
-          :final taskId,
-          :final percent,
-          :final downloadedBytes,
-          :final totalBytes,
-          :final speedBytesSec,
-          :final etaSecs,
-        ):
+        :final taskId,
+        :final percent,
+        :final downloadedBytes,
+        :final totalBytes,
+        :final speedBytesSec,
+        :final etaSecs,
+      ):
         _downloads[taskId] = DownloadState(
           percent: percent,
           downloadedBytes: downloadedBytes,
@@ -403,6 +407,93 @@ class AppModel extends ChangeNotifier {
 
   bool get isShuffleSession => _shuffleSession;
 
+  List<Track> get queue => List.unmodifiable(_queue);
+
+  /// Jump to the queue item at [index] and keep playing through the rest.
+  Future<void> playAtIndex(int index) async {
+    if (index < 0 || index >= _queue.length) return;
+    _ensurePlayer();
+    _previewId = null;
+    _currentTrack = _queue[index];
+    _position = Duration.zero;
+    await _player!.open(
+      mk.Playlist(_queue.map((t) => mk.Media(t.filePath)).toList()),
+      play: false,
+    );
+    await _player!.jump(index);
+    notifyListeners();
+    _recordPlay(_queue[index]);
+  }
+
+  // ---- search history --------------------------------------------------
+
+  Future<List<SearchHistoryEntry>> loadRecentSearches(String source) async {
+    return recentSearches(source: source, limit: 20);
+  }
+
+  Future<void> saveToSearchHistory(String query, String source) async {
+    await recordSearch(query: query, source: source);
+  }
+
+  Future<void> removeSearch(int id) async {
+    await deleteSearch(id: id);
+  }
+
+  // ---- queue reorder ---------------------------------------------------
+
+  Future<void> reorderQueue(int oldIndex, int newIndex) async {
+    if (oldIndex == newIndex) return;
+    final q = List<Track>.from(_queue);
+    final item = q.removeAt(oldIndex);
+    q.insert(newIndex, item);
+    _queue = q;
+    // Keep current track in sync.
+    final currentIndex = _currentTrackIdx();
+    _currentTrack = currentIndex != null
+        ? _queue[currentIndex]
+        : (_queue.isEmpty ? null : _queue.first);
+    // Capturamos el estado de reproducción ANTES de reconstruir el playlist:
+    // `open` resetea el índice y el playhead, y no debe reiniciar la canción.
+    final wasPlaying = isPlaying;
+    final positionMs = _position.inMilliseconds;
+    // Rebuild media_kit playlist with the new order.
+    _ensurePlayer();
+    await _player!.open(
+      mk.Playlist(q.map((t) => mk.Media(t.filePath)).toList()),
+      play: false,
+    );
+    // Jump to the correct track after reordering.
+    if (currentIndex != null && currentIndex < q.length) {
+      await _player!.jump(currentIndex);
+      _currentTrack = q[currentIndex];
+    }
+    // media_kit descarta los `seek` emitidos antes de tener la pista lista
+    // (la canción caía a 0 y volvía a sonar desde el principio). Esperamos a
+    // que se notifique la duración antes de restaurar posición y play.
+    try {
+      await _player!.stream.duration
+          .firstWhere((d) => d > Duration.zero)
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Duración desconocida (p. ej. streams): proseguimos igualmente.
+    }
+    if (positionMs > 0) {
+      await _player!.seek(Duration(milliseconds: positionMs));
+    }
+    if (wasPlaying && !isPlaying) {
+      await _player!.play();
+    }
+    notifyListeners();
+  }
+
+  int? _currentTrackIdx() {
+    if (_currentTrack == null) return null;
+    for (var i = 0; i < _queue.length; i++) {
+      if (_queue[i].id == _currentTrack!.id) return i;
+    }
+    return null;
+  }
+
   @override
   void dispose() {
     _eventSub?.cancel();
@@ -415,11 +506,11 @@ class AppModel extends ChangeNotifier {
 /// dependents when it notifies.
 class AppModelProvider extends InheritedNotifier<AppModel> {
   AppModelProvider({super.key, required super.child, AppModel? model})
-      : super(notifier: model ?? AppModel());
+    : super(notifier: model ?? AppModel());
 
   static AppModel of(BuildContext context) {
-    final provider =
-        context.dependOnInheritedWidgetOfExactType<AppModelProvider>();
+    final provider = context
+        .dependOnInheritedWidgetOfExactType<AppModelProvider>();
     assert(provider != null, 'No AppModelProvider found in context');
     return provider!.notifier!;
   }

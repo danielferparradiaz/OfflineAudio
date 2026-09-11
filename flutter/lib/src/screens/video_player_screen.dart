@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:hugeicons/hugeicons.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/engine/models.dart';
@@ -58,7 +59,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
                 child: CircleAvatar(
                   backgroundColor: Colors.black54,
                   child: IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    icon: const HugeIcon(
+                      icon: HugeIcons.strokeRoundedArrowLeft01,
+                      color: Colors.white,
+                    ),
                     tooltip: 'Volver',
                     onPressed: () => Navigator.of(context).pop(),
                   ),

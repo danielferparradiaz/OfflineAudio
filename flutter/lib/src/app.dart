@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:hugeicons/hugeicons.dart';
 import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
@@ -67,24 +68,23 @@ class _OfflineAudioAppState extends State<OfflineAudioApp> {
       seedColor: Color(s.accent),
       brightness: brightness,
     );
-    final bg = s.background;
-    final colorScheme = bg != null
-        ? scheme.copyWith(
-            surface: Color(bg),
-            surfaceContainerHighest: Color(bg),
-          )
-        : scheme;
+    // Mismo fondo que el shell (macOS/Windows): negro en oscuro, blanco en
+    // claro, para que ajustes, playlists y detalle de playlist no destaquen
+    // con otro tono.
+    final background = brightness == Brightness.dark
+        ? const Color(0xFF0E0E0E)
+        : const Color(0xFFFFFFFF);
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
-      colorScheme: colorScheme,
-      scaffoldBackgroundColor: bg != null ? Color(bg) : scheme.surface,
-      cardColor: bg != null ? Color(bg) : scheme.surface,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: background,
+      cardColor: scheme.surface,
     );
   }
 
-  /// Tema Cupertino para los widgets nativos en iOS/macOS. Toma el acento y
-  /// el fondo personalizados del mismo SettingsController que el tema Material.
+  /// Tema Cupertino para los widgets nativos en iOS/macOS. Toma el acento
+  /// del mismo SettingsController que el tema Material.
   CupertinoThemeData _buildCupertinoTheme(
     Brightness brightness,
     SettingsController s,
@@ -93,9 +93,6 @@ class _OfflineAudioAppState extends State<OfflineAudioApp> {
     return CupertinoThemeData(
       brightness: brightness,
       primaryColor: primary,
-      scaffoldBackgroundColor: s.background != null
-          ? Color(s.background!)
-          : null,
       textTheme: CupertinoTextThemeData(primaryColor: primary),
     );
   }
@@ -302,15 +299,15 @@ class _HomeShellState extends State<HomeShell> {
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
               ),
             ),
-            _sideItem(context, 0, Icons.library_music, 'Biblioteca'),
+            _sideItem(context, 0, HugeIcons.strokeRoundedLibrary, 'Biblioteca'),
             _sideItem(
               context,
               1,
-              Icons.download,
+              HugeIcons.strokeRoundedDownload01,
               'Descargas',
               badge: _completedCount(),
             ),
-            _sideItem(context, 2, Icons.queue_music, 'Playlists'),
+            _sideItem(context, 2, HugeIcons.strokeRoundedQueue01, 'Playlists'),
             const Spacer(),
             const Divider(height: 1),
             Padding(
@@ -330,8 +327,8 @@ class _HomeShellState extends State<HomeShell> {
                     ),
                     child: Row(
                       children: [
-                        Icon(
-                          Icons.settings_outlined,
+                        HugeIcon(
+                          icon: HugeIcons.strokeRoundedSettings01,
                           size: 18,
                           color: Theme.of(context).colorScheme.onSurface,
                         ),
@@ -350,10 +347,11 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
+  /// Icono Hugeicons (datos JSON del trazo).
   Widget _sideItem(
     BuildContext context,
     int index,
-    IconData icon,
+    List<List<dynamic>> icon,
     String label, {
     int? badge,
   }) {
@@ -374,8 +372,8 @@ class _HomeShellState extends State<HomeShell> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Row(
               children: [
-                Icon(
-                  icon,
+                HugeIcon(
+                  icon: icon,
                   size: 18,
                   color: selected
                       ? scheme.primary
@@ -410,9 +408,13 @@ class _HomeShellState extends State<HomeShell> {
         activeColor: scheme.primary,
         inactiveColor: scheme.onSurface.withValues(alpha: 0.45),
         items: [
-          _iosTab(Icons.library_music, 'Biblioteca'),
-          _iosTab(Icons.download, 'Descargas', badge: _completedCount()),
-          _iosTab(Icons.queue_music, 'Playlists'),
+          _iosTab(HugeIcons.strokeRoundedLibrary, 'Biblioteca'),
+          _iosTab(
+            HugeIcons.strokeRoundedDownload01,
+            'Descargas',
+            badge: _completedCount(),
+          ),
+          _iosTab(HugeIcons.strokeRoundedQueue01, 'Playlists'),
         ],
       ),
       tabBuilder: (context, index) => Scaffold(
@@ -430,10 +432,14 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
-  BottomNavigationBarItem _iosTab(IconData icon, String label, {int? badge}) {
+  BottomNavigationBarItem _iosTab(
+    List<List<dynamic>> icon,
+    String label, {
+    int? badge,
+  }) {
     final iconWidget = badge != null && badge > 0
         ? _badgedIcon(icon, badge)
-        : Icon(icon);
+        : HugeIcon(icon: icon, size: 24);
     return BottomNavigationBarItem(
       icon: iconWidget,
       activeIcon: iconWidget,
@@ -441,11 +447,11 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
-  Stack _badgedIcon(IconData icon, int badge) {
+  Stack _badgedIcon(List<List<dynamic>> icon, int badge) {
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        Icon(icon),
+        HugeIcon(icon: icon, size: 24),
         Positioned(right: -8, top: -4, child: _badge(badge)),
       ],
     );
@@ -485,24 +491,28 @@ class _HomeShellState extends State<HomeShell> {
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
+                  children: [
                     CircleAvatar(
                       radius: 28,
-                      child: Icon(Icons.person, size: 32),
+                      child: HugeIcon(
+                        icon: HugeIcons.strokeRoundedUser,
+                        size: 32,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
                     ),
-                    SizedBox(height: 12),
-                    Text(
+                    const SizedBox(height: 12),
+                    const Text(
                       'Invitado',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    Text(
+                    const Text(
                       'Cuenta sin iniciar',
                       style: TextStyle(fontSize: 12, color: Colors.white54),
                     ),
-                    SizedBox(height: 4),
+                    const SizedBox(height: 4),
                   ],
                 ),
               ),
@@ -524,21 +534,21 @@ class _HomeShellState extends State<HomeShell> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _navButton(0, Icons.library_music, 'Biblioteca'),
+            _navButton(0, HugeIcons.strokeRoundedLibrary, 'Biblioteca'),
             _navButtonWithBadge(
               1,
-              Icons.download,
+              HugeIcons.strokeRoundedDownload01,
               'Descargas',
               completedCount: _completedCount(),
             ),
-            _navButton(2, Icons.queue_music, 'Playlists'),
+            _navButton(2, HugeIcons.strokeRoundedQueue01, 'Playlists'),
           ],
         ),
       ),
     );
   }
 
-  Widget _navButton(int index, IconData icon, String label) {
+  Widget _navButton(int index, List<List<dynamic>> icon, String label) {
     final selected = _index == index;
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
@@ -558,8 +568,8 @@ class _HomeShellState extends State<HomeShell> {
                     : Colors.transparent,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                icon,
+              child: HugeIcon(
+                icon: icon,
                 color: selected
                     ? scheme.onSecondaryContainer
                     : scheme.onSurface.withValues(alpha: 0.55),
@@ -590,7 +600,7 @@ class _HomeShellState extends State<HomeShell> {
 
   Widget _navButtonWithBadge(
     int index,
-    IconData icon,
+    List<List<dynamic>> icon,
     String label, {
     int? completedCount,
   }) {

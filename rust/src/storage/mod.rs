@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
 use uuid::Uuid;
 
-use crate::engine::models::{Playlist, SortOrder, Track};
+use crate::engine::models::{Playlist, SearchHistoryEntry, SortOrder, Track};
 
 #[derive(Clone)]
 pub struct AppDatabase {
@@ -324,6 +324,55 @@ impl AppDatabase {
         Ok(())
     }
 
+    // ---- search history ------------------------------------------------
+
+    /// Record a search query for a given source, deduplicating by (query, source).
+    pub async fn record_search(&self, query: &str, source: &str) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        sqlx::query(
+            "DELETE FROM search_history WHERE query = ? AND source = ?",
+        )
+        .bind(query)
+        .bind(source)
+        .execute(&self.pool)
+        .await?;
+        sqlx::query(
+            "INSERT INTO search_history (query, source, created_at) VALUES (?, ?, ?)",
+        )
+        .bind(query)
+        .bind(source)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Return recent searches for a source, most recent first.
+    pub async fn recent_searches(
+        &self,
+        source: &str,
+        limit: i64,
+    ) -> Result<Vec<SearchHistoryEntry>> {
+        let rows = sqlx::query_as::<_, SearchHistoryEntry>(
+            "SELECT id, query, source, created_at FROM search_history
+             WHERE source = ? ORDER BY created_at DESC LIMIT ?",
+        )
+        .bind(source)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Delete a single search history entry by id.
+    pub async fn delete_search(&self, id: i64) -> Result<()> {
+        sqlx::query("DELETE FROM search_history WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     // ---- misc ----------------------------------------------------------
 
     /// Total tracks in the library.
@@ -527,5 +576,40 @@ mod tests {
         );
         db.delete_setting("theme").await.unwrap();
         assert!(db.get_setting("theme").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn search_history_dedupe_and_delete() {
+        let (_dir, db) = test_db().await;
+        db.record_search("lofi", "youtube").await.unwrap();
+        db.record_search("chill", "youtube").await.unwrap();
+
+        // Recording the same query again moves it to the front (no dupes).
+        db.record_search("lofi", "youtube").await.unwrap();
+        let history = db.recent_searches("youtube", 20).await.unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].query, "lofi");
+        assert_eq!(history[1].query, "chill");
+
+        // Sources are isolated.
+        db.record_search("dungeon synth", "youtube").await.unwrap();
+        db.record_search("ableton", "google").await.unwrap();
+        let yt = db.recent_searches("youtube", 20).await.unwrap();
+        assert!(yt.iter().all(|e| e.source == "youtube"));
+        assert_eq!(yt.len(), 3);
+        let gg = db.recent_searches("google", 20).await.unwrap();
+        assert_eq!(gg.len(), 1);
+        assert_eq!(gg[0].query, "ableton");
+
+        // Limit applies.
+        let limited = db.recent_searches("youtube", 2).await.unwrap();
+        assert_eq!(limited.len(), 2);
+
+        // Delete one entry.
+        let first_id = history[0].id;
+        db.delete_search(first_id).await.unwrap();
+        let after = db.recent_searches("youtube", 20).await.unwrap();
+        assert!(after.iter().all(|e| e.id != first_id));
+        assert_eq!(after.len(), 2);
     }
 }

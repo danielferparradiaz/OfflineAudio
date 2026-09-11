@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hugeicons/hugeicons.dart';
 
 /// Error banner for a failed search, with retry / back-to-library actions.
 class SearchError extends StatelessWidget {
@@ -15,15 +16,18 @@ class SearchError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final subtle =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.65);
+    final subtle = Theme.of(context).colorScheme.onSurface
+        .withValues(alpha: 0.65);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.cloud_off,
-              size: 48, color: subtle.withValues(alpha: 0.6)),
+          HugeIcon(
+            icon: HugeIcons.strokeRoundedCloudOff,
+            size: 48,
+            color: subtle.withValues(alpha: 0.6),
+          ),
           const SizedBox(height: 12),
           Text(
             message,
@@ -36,7 +40,7 @@ class SearchError extends StatelessWidget {
             children: [
               FilledButton.icon(
                 onPressed: onRetry,
-                icon: const Icon(Icons.refresh),
+                icon: const HugeIcon(icon: HugeIcons.strokeRoundedRefresh),
                 label: const Text('Reintentar'),
               ),
               const SizedBox(width: 8),

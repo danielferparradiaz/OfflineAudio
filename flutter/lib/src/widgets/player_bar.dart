@@ -2,9 +2,11 @@ import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:hugeicons/hugeicons.dart';
 import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/screens/screens.dart';
+import 'package:offline_audio_app/src/widgets/queue_sheet.dart';
 
 String _fmtClock(Duration d) {
   final h = d.inHours;
@@ -32,7 +34,7 @@ class PlayerBar extends StatelessWidget {
         child: Row(
           children: [
             const SizedBox(width: 12),
-            Icon(Icons.music_note, color: subtle),
+            HugeIcon(icon: HugeIcons.strokeRoundedMusicNote01, color: subtle),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -58,8 +60,10 @@ class PlayerBar extends StatelessWidget {
 
     Widget leading;
     if (preview) {
-      leading = Icon(
-        isVideo ? Icons.videocam : Icons.music_note,
+      leading = HugeIcon(
+        icon: isVideo
+            ? HugeIcons.strokeRoundedCameraVideo
+            : HugeIcons.strokeRoundedMusicNote01,
         color: subtle,
       );
     } else if (track?.thumbnailPath != null) {
@@ -70,13 +74,20 @@ class PlayerBar extends StatelessWidget {
           width: 36,
           height: 36,
           fit: BoxFit.cover,
-          errorBuilder: (_, _, _) =>
-              Icon(isVideo ? Icons.videocam : Icons.music_note, color: subtle),
+          errorBuilder: (_, _, _) => HugeIcon(
+            icon: isVideo
+                ? HugeIcons.strokeRoundedCameraVideo
+                : HugeIcons.strokeRoundedMusicNote01,
+            color: subtle,
+            size: 24,
+          ),
         ),
       );
     } else {
-      leading = Icon(
-        isVideo ? Icons.videocam : Icons.music_note,
+      leading = HugeIcon(
+        icon: isVideo
+            ? HugeIcons.strokeRoundedCameraVideo
+            : HugeIcons.strokeRoundedMusicNote01,
         color: subtle,
       );
     }
@@ -111,11 +122,17 @@ class PlayerBar extends StatelessWidget {
                       maxLines: 1,
                     ),
                     if (!preview && model.isShuffleSession)
-                      Text(
-                        'View playlist',
-                        style: TextStyle(color: subtle, fontSize: 11),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1,
+                      GestureDetector(
+                        onTap: () => showQueueSheet(context),
+                        child: Text(
+                          'View playlist',
+                          style: TextStyle(
+                            color: scheme.onSurface.withValues(alpha: 0.55),
+                            fontSize: 11,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
                       ),
                     if (subtitle.isNotEmpty)
                       Text(
@@ -129,7 +146,7 @@ class PlayerBar extends StatelessWidget {
               ),
               if (isVideo)
                 IconButton(
-                  icon: const Icon(Icons.fullscreen),
+                  icon: const HugeIcon(icon: HugeIcons.strokeRoundedFullscreen),
                   tooltip: 'Ver vídeo',
                   onPressed: () {
                     if (preview) {
@@ -153,22 +170,22 @@ class PlayerBar extends StatelessWidget {
                   },
                 ),
               IconButton(
-                icon: const Icon(Icons.skip_previous),
+                icon: const HugeIcon(icon: HugeIcons.strokeRoundedBackward01),
                 tooltip: 'Anterior',
                 onPressed: () => model.skipPrevious(),
               ),
               IconButton(
-                icon: Icon(
-                  model.isPlaying
-                      ? Icons.pause_circle_filled
-                      : Icons.play_circle_filled,
+                icon: HugeIcon(
+                  icon: model.isPlaying
+                      ? HugeIcons.strokeRoundedPauseCircle
+                      : HugeIcons.strokeRoundedPlayCircle,
                   size: 36,
                 ),
                 tooltip: model.isPlaying ? 'Pausar' : 'Reproducir',
                 onPressed: () => model.togglePause(),
               ),
               IconButton(
-                icon: const Icon(Icons.skip_next),
+                icon: const HugeIcon(icon: HugeIcons.strokeRoundedForward01),
                 tooltip: 'Siguiente',
                 onPressed: () => model.skipNext(),
               ),

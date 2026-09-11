@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:hugeicons/hugeicons.dart';
 
 import 'platform.dart';
 
@@ -96,7 +97,9 @@ class AppSheetItem<T> {
 
   final T value;
   final String label;
-  final IconData? icon;
+
+  /// Icono Hugeicons (datos JSON del trazo). Renderizado como [HugeIcon].
+  final List<List<dynamic>>? icon;
   final String? subtitle;
   final bool destructive;
 }
@@ -164,7 +167,9 @@ Future<T?> showAppBottomSheet<T>(
               children: [
                 for (final item in items)
                   ListTile(
-                    leading: item.icon != null ? Icon(item.icon) : null,
+                    leading: item.icon != null
+                        ? HugeIcon(icon: item.icon!, size: 24)
+                        : null,
                     title: Text(item.label),
                     subtitle: item.subtitle != null
                         ? Text(item.subtitle!)
@@ -178,6 +183,149 @@ Future<T?> showAppBottomSheet<T>(
       ),
     ),
   );
+}
+
+/// Hoja inferior con buscador en la parte superior que filtra los items en
+/// vivo. Renderiza un `AppSearchField` y una lista filtrada; devuelve el
+/// valor del item pulsado o `null` al cancelar.
+///
+/// Usa Material `showModalBottomSheet` en todas las plataformas para
+/// mantener el buscador y el listado filtrable (ligero toque Cupertino
+/// cuando se pide explícitamente con `cupertino: true`).
+Future<T?> showAppBottomSheetWithSearch<T>(
+  BuildContext context, {
+  Widget? title,
+  List<AppSheetItem<T>> items = const [],
+  bool withCancel = true,
+  String searchHint = 'Buscar',
+  required bool Function(AppSheetItem<T> item, String query) filter,
+}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) => _SearchableSheet<T>(
+      title: title,
+      items: items,
+      withCancel: withCancel,
+      searchHint: searchHint,
+      filter: filter,
+      onPop: (value) => Navigator.of(sheetContext).pop(value),
+    ),
+  );
+}
+
+class _SearchableSheet<T> extends StatefulWidget {
+  const _SearchableSheet({
+    required this.title,
+    required this.items,
+    required this.withCancel,
+    required this.searchHint,
+    required this.filter,
+    required this.onPop,
+  });
+
+  final Widget? title;
+  final List<AppSheetItem<T>> items;
+  final bool withCancel;
+  final String searchHint;
+  final bool Function(AppSheetItem<T> item, String query) filter;
+  final ValueChanged<T?> onPop;
+
+  @override
+  State<_SearchableSheet<T>> createState() => _SearchableSheetState<T>();
+}
+
+class _SearchableSheetState<T> extends State<_SearchableSheet<T>> {
+  final TextEditingController _controller = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  List<AppSheetItem<T>> get _filtered {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return widget.items;
+    return widget.items.where((i) => widget.filter(i, q)).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (widget.title != null) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: widget.title!,
+              ),
+            ],
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: AppSearchField(
+                controller: _controller,
+                onSearch: () {},
+                onChanged: (v) => setState(() => _query = v),
+                hint: widget.searchHint,
+              ),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final item in _filtered)
+                    ListTile(
+                      leading: item.icon != null
+                          ? HugeIcon(icon: item.icon!, size: 24)
+                          : null,
+                      title: Text(item.label),
+                      subtitle: item.subtitle != null
+                          ? Text(item.subtitle!)
+                          : null,
+                      onTap: () => widget.onPop(item.value),
+                    ),
+                  if (_filtered.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Center(
+                        child: Text(
+                          'Sin resultados',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface
+                                .withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (widget.withCancel) ...[
+              const Divider(height: 1),
+              SafeArea(
+                child: ListTile(
+                  title: const Center(child: Text('Cancelar')),
+                  textColor: isApplePlatform
+                      ? CupertinoTheme.of(context).primaryColor
+                      : Theme.of(context).colorScheme.primary,
+                  onTap: () => widget.onPop(null),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// Aviso transitorio. Usa el SnackBar estándar de Material (bien visible en
@@ -347,32 +495,42 @@ class AppSearchField extends StatelessWidget {
     required this.controller,
     required this.onSearch,
     this.onChanged,
+    this.focusNode,
+    this.onFocusChanged,
+    this.hint,
   });
 
   final TextEditingController controller;
   final VoidCallback onSearch;
   final ValueChanged<String>? onChanged;
+  final FocusNode? focusNode;
+  final ValueChanged<bool>? onFocusChanged;
+  final String? hint;
 
   @override
   Widget build(BuildContext context) {
     if (isApplePlatform) {
       return CupertinoSearchTextField(
         controller: controller,
+        focusNode: focusNode,
         onChanged: onChanged,
         onSubmitted: (_) => onSearch(),
+        onTap: () => onFocusChanged?.call(true),
         itemColor: CupertinoTheme.of(context).primaryColor,
       );
     }
     return TextField(
       controller: controller,
+      focusNode: focusNode,
       onChanged: onChanged,
+      onTap: () => onFocusChanged?.call(true),
       decoration: InputDecoration(
         prefixIcon: IconButton(
-          icon: const Icon(Icons.search),
-          tooltip: 'Buscar en YouTube',
+          icon: HugeIcon(icon: HugeIcons.strokeRoundedSearch01, size: 24),
+          tooltip: hint ?? 'Buscar',
           onPressed: onSearch,
         ),
-        hintText: 'Buscar',
+        hintText: hint ?? 'Buscar',
         filled: true,
         fillColor: Theme.of(context).colorScheme.onSurface
             .withValues(alpha: 0.08),

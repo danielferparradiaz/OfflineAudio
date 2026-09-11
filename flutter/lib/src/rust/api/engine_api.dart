@@ -88,6 +88,23 @@ Future<List<Track>> playlistTracks({required String playlistId}) => RustLib
     .api
     .crateApiEngineApiPlaylistTracks(playlistId: playlistId);
 
+Future<void> recordSearch({required String query, required String source}) =>
+    RustLib.instance.api.crateApiEngineApiRecordSearch(
+      query: query,
+      source: source,
+    );
+
+Future<List<SearchHistoryEntry>> recentSearches({
+  required String source,
+  required PlatformInt64 limit,
+}) => RustLib.instance.api.crateApiEngineApiRecentSearches(
+  source: source,
+  limit: limit,
+);
+
+Future<void> deleteSearch({required PlatformInt64 id}) =>
+    RustLib.instance.api.crateApiEngineApiDeleteSearch(id: id);
+
 Future<String?> getSetting({required String key}) =>
     RustLib.instance.api.crateApiEngineApiGetSetting(key: key);
 

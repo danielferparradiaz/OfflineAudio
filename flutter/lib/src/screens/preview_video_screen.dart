@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hugeicons/hugeicons.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 
@@ -51,7 +52,10 @@ class _PreviewVideoScreenState extends State<PreviewVideoScreen> {
                       'Avance · ${widget.title}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
                 ],
@@ -66,7 +70,10 @@ class _PreviewVideoScreenState extends State<PreviewVideoScreen> {
                       'Avance · ${widget.title}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
                 ],
@@ -83,7 +90,10 @@ class _PreviewVideoScreenState extends State<PreviewVideoScreen> {
                 child: CircleAvatar(
                   backgroundColor: Colors.black54,
                   child: IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    icon: const HugeIcon(
+                      icon: HugeIcons.strokeRoundedArrowLeft01,
+                      color: Colors.white,
+                    ),
                     tooltip: 'Volver',
                     onPressed: () => Navigator.of(context).pop(),
                   ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hugeicons/hugeicons.dart';
 import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
@@ -17,7 +18,7 @@ class PlaylistsScreen extends StatelessWidget {
       title: 'Playlists',
       actions: [
         IconButton(
-          icon: const Icon(Icons.add),
+          icon: const HugeIcon(icon: HugeIcons.strokeRoundedAdd01),
           tooltip: 'Nueva playlist',
           onPressed: () => _createPlaylist(context),
         ),
@@ -35,24 +36,30 @@ class PlaylistsScreen extends StatelessWidget {
               itemBuilder: (context, index) {
                 final p = playlists[index];
                 return ListTile(
-                  leading: const Icon(Icons.queue_music),
+                  leading: const HugeIcon(icon: HugeIcons.strokeRoundedQueue01),
                   title: Text(p.name),
                   subtitle: Text('${p.trackCount} canciones'),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.edit_outlined),
+                        icon: const HugeIcon(
+                          icon: HugeIcons.strokeRoundedEdit01,
+                        ),
                         tooltip: 'Renombrar',
                         onPressed: () => _renamePlaylist(context, p),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.delete_outline),
+                        icon: const HugeIcon(
+                          icon: HugeIcons.strokeRoundedDelete01,
+                        ),
                         tooltip: 'Borrar',
                         onPressed: () => _confirmDelete(context, p),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.chevron_right),
+                        icon: const HugeIcon(
+                          icon: HugeIcons.strokeRoundedArrowRight01,
+                        ),
                         onPressed: () async {
                           await Navigator.of(context).push(
                             MaterialPageRoute(

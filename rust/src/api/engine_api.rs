@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::frb_generated::StreamSink;
 
 use crate::engine::events::Event;
-use crate::engine::models::{ContentKind, Playlist, ProbeInfo, SortOrder, Track};
+use crate::engine::models::{ContentKind, Playlist, ProbeInfo, SearchHistoryEntry, SortOrder, Track};
 use crate::engine::{pipeline, AppEngine};
 
 /// The single shared engine instance.
@@ -154,6 +154,23 @@ pub async fn reorder_playlist(playlist_id: String, ordered_track_ids: Vec<String
 #[flutter_rust_bridge::frb]
 pub async fn playlist_tracks(playlist_id: String) -> Result<Vec<Track>> {
     engine_ref().db.playlist_tracks(&playlist_id).await
+}
+
+// ---- search history ------------------------------------------------------
+
+#[flutter_rust_bridge::frb]
+pub async fn record_search(query: String, source: String) -> Result<()> {
+    engine_ref().db.record_search(&query, &source).await
+}
+
+#[flutter_rust_bridge::frb]
+pub async fn recent_searches(source: String, limit: i64) -> Result<Vec<SearchHistoryEntry>> {
+    engine_ref().db.recent_searches(&source, limit).await
+}
+
+#[flutter_rust_bridge::frb]
+pub async fn delete_search(id: i64) -> Result<()> {
+    engine_ref().db.delete_search(id).await
 }
 
 // ---- settings -----------------------------------------------------------

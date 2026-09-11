@@ -106,6 +106,34 @@ class ProbeInfo {
           likelySpeech == other.likelySpeech;
 }
 
+class SearchHistoryEntry {
+  final PlatformInt64 id;
+  final String query;
+  final String source;
+  final String createdAt;
+
+  const SearchHistoryEntry({
+    required this.id,
+    required this.query,
+    required this.source,
+    required this.createdAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^ query.hashCode ^ source.hashCode ^ createdAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SearchHistoryEntry &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          query == other.query &&
+          source == other.source &&
+          createdAt == other.createdAt;
+}
+
 enum SortOrder {
   /// Title A-Z.
   titleAsc,

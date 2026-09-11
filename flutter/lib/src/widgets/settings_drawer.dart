@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hugeicons/hugeicons.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/settings.dart';
 
@@ -95,7 +96,9 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
           const Divider(),
           _SectionTitle('Aplicación'),
           ListTile(
-            leading: const Icon(Icons.download_for_offline_outlined),
+            leading: const HugeIcon(
+              icon: HugeIcons.strokeRoundedDownloadSquare01,
+            ),
             title: const Text('Comprobar yt-dlp'),
             subtitle: Text(_ytdlpSubtitle()),
             trailing: _checking
@@ -105,7 +108,7 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : IconButton(
-                    icon: const Icon(Icons.refresh),
+                    icon: const HugeIcon(icon: HugeIcons.strokeRoundedRefresh),
                     onPressed: _checkYtdlp,
                   ),
           ),
@@ -121,24 +124,26 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
           _SectionTitle('Almacenamiento'),
           if (_dirs != null) ...[
             ListTile(
-              leading: const Icon(Icons.folder),
+              leading: const HugeIcon(icon: HugeIcons.strokeRoundedFolder01),
               title: const Text('Biblioteca (canciones .opus)'),
               subtitle: Text(_dirs!.cache),
             ),
             ListTile(
-              leading: const Icon(Icons.image_outlined),
+              leading: const HugeIcon(icon: HugeIcons.strokeRoundedImage01),
               title: const Text('Miniaturas'),
               subtitle: Text(_dirs!.thumbs),
             ),
             ListTile(
-              leading: const Icon(Icons.storage),
+              leading: const HugeIcon(icon: HugeIcons.strokeRoundedDatabase),
               title: const Text('Temporal'),
               subtitle: Text(_dirs!.tmp),
             ),
           ],
           const Divider(),
           ListTile(
-            leading: const Icon(Icons.info_outline),
+            leading: const HugeIcon(
+              icon: HugeIcons.strokeRoundedInformationCircle,
+            ),
             title: const Text('Acerca de'),
             subtitle: const Text(
               'OfflineAudio 1.0 · uso personal.\nUso exclusivo de contenidos que tienes derecho a descargar.',
@@ -156,7 +161,7 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
         segments: const [
           ButtonSegment(
             value: ThemeMode.light,
-            icon: Icon(Icons.light_mode_outlined),
+            icon: HugeIcon(icon: HugeIcons.strokeRoundedSun01, size: 24),
             label: Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: Text('Claro'),
@@ -164,7 +169,7 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
           ),
           ButtonSegment(
             value: ThemeMode.dark,
-            icon: Icon(Icons.dark_mode_outlined),
+            icon: HugeIcon(icon: HugeIcons.strokeRoundedMoon02, size: 24),
             label: Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: Text('Oscuro'),
@@ -172,7 +177,7 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
           ),
           ButtonSegment(
             value: ThemeMode.system,
-            icon: Icon(Icons.brightness_auto_outlined),
+            icon: HugeIcon(icon: HugeIcons.strokeRoundedMagicWand01, size: 24),
             label: Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: Text('Sistema'),
@@ -198,7 +203,7 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ListTile(
-          leading: const Icon(Icons.build_outlined),
+          leading: const HugeIcon(icon: HugeIcons.strokeRoundedWrench01),
           title: const Text('Binarios yt-dlp / ffmpeg'),
           subtitle: Text(status),
           trailing: _downloading
@@ -209,7 +214,10 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
                 )
               : FilledButton.tonalIcon(
                   onPressed: installed ? null : _downloadBinaries,
-                  icon: const Icon(Icons.download, size: 18),
+                  icon: const HugeIcon(
+                    icon: HugeIcons.strokeRoundedDownload01,
+                    size: 18,
+                  ),
                   label: Text(installed ? 'Instalados' : 'Descargar'),
                 ),
         ),

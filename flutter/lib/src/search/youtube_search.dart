@@ -48,35 +48,41 @@ class YoutubeSearch {
           .search(trimmed)
           .timeout(const Duration(seconds: 25));
       debugPrint(
-          '[YoutubeSearch] raw videos=${videos.length} en ${sw.elapsedMilliseconds}ms');
+        '[YoutubeSearch] raw videos=${videos.length} en ${sw.elapsedMilliseconds}ms',
+      );
       final out = <SearchResult>[];
       for (var i = 0; i < videos.length; i++) {
         try {
           final v = videos[i];
-          out.add(SearchResult(
-            id: v.id.toString(),
-            title: v.title,
-            author: v.author,
-            duration: v.duration,
-            thumbnailUrl: v.thumbnails.highResUrl,
-            url: v.url,
-          ));
+          out.add(
+            SearchResult(
+              id: v.id.toString(),
+              title: v.title,
+              author: v.author,
+              duration: v.duration,
+              thumbnailUrl: v.thumbnails.highResUrl,
+              url: v.url,
+            ),
+          );
         } catch (e, st) {
           debugPrint('[YoutubeSearch] salto item $i por error: $e\n$st');
         }
       }
       sw.stop();
       debugPrint(
-          '[YoutubeSearch] done query="$trimmed" mapeados=${out.length}/${videos.length} en ${sw.elapsedMilliseconds}ms');
+        '[YoutubeSearch] done query="$trimmed" mapeados=${out.length}/${videos.length} en ${sw.elapsedMilliseconds}ms',
+      );
       if (out.isNotEmpty) {
         debugPrint(
-            '[YoutubeSearch] primero: "${out.first.title}" · ${out.first.author}');
+          '[YoutubeSearch] primero: "${out.first.title}" · ${out.first.author}',
+        );
       }
       return out;
     } catch (e, st) {
       sw.stop();
       debugPrint(
-          '[YoutubeSearch] ERROR query="$trimmed" tras ${sw.elapsedMilliseconds}ms: $e\n$st');
+        '[YoutubeSearch] ERROR query="$trimmed" tras ${sw.elapsedMilliseconds}ms: $e\n$st',
+      );
       rethrow;
     }
   }
@@ -97,8 +103,10 @@ class YoutubeSearch {
       throw StateError('Sin streams reproducibles para $videoId');
     }
     final s = muxed.withHighestBitrate();
-    debugPrint('[YoutubeSearch] audio listo (muxed) id=$videoId '
-        'host=${s.url.host}');
+    debugPrint(
+      '[YoutubeSearch] audio listo (muxed) id=$videoId '
+      'host=${s.url.host}',
+    );
     return s.url.toString();
   }
 
@@ -116,5 +124,19 @@ class YoutubeSearch {
     final s = muxed.withHighestBitrate();
     debugPrint('[YoutubeSearch] vídeo listo id=$videoId host=${s.url.host}');
     return s.url.toString();
+  }
+
+  /// YouTube search autocomplete predictions for the given partial query.
+  static Future<List<String>> getQuerySuggestions(String query) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return const [];
+    try {
+      return await _yt.search
+          .getQuerySuggestions(trimmed)
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('[YoutubeSearch] suggestions error: $e');
+      return const [];
+    }
   }
 }

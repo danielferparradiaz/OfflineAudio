@@ -75,6 +75,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<SearchHistoryEntry> dco_decode_list_search_history_entry(dynamic raw);
+
+  @protected
   List<Track> dco_decode_list_track(dynamic raw);
 
   @protected
@@ -94,6 +97,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ProbeInfo dco_decode_probe_info(dynamic raw);
+
+  @protected
+  SearchHistoryEntry dco_decode_search_history_entry(dynamic raw);
 
   @protected
   SortOrder dco_decode_sort_order(dynamic raw);
@@ -167,6 +173,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  List<SearchHistoryEntry> sse_decode_list_search_history_entry(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<Track> sse_decode_list_track(SseDeserializer deserializer);
 
   @protected
@@ -186,6 +197,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ProbeInfo sse_decode_probe_info(SseDeserializer deserializer);
+
+  @protected
+  SearchHistoryEntry sse_decode_search_history_entry(
+    SseDeserializer deserializer,
+  );
 
   @protected
   SortOrder sse_decode_sort_order(SseDeserializer deserializer);
@@ -272,6 +288,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_search_history_entry(
+    List<SearchHistoryEntry> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_track(List<Track> self, SseSerializer serializer);
 
   @protected
@@ -294,6 +316,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_probe_info(ProbeInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_search_history_entry(
+    SearchHistoryEntry self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_sort_order(SortOrder self, SseSerializer serializer);

@@ -2,7 +2,10 @@
 library;
 
 export 'empty_library.dart';
+export 'mini_equalizer.dart';
 export 'player_bar.dart';
+export 'queue_sheet.dart';
+export 'recent_searches.dart';
 export 'search_error.dart';
 export 'search_feedback.dart';
 export 'search_result_tile.dart';

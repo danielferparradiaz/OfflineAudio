@@ -97,6 +97,14 @@ pub enum SortOrder {
     DateAsc,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct SearchHistoryEntry {
+    pub id: i64,
+    pub query: String,
+    pub source: String,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProbeInfo {
     pub id: String,

@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart' show CupertinoSegmentedControl;
 import 'package:flutter/material.dart';
+import 'package:hugeicons/hugeicons.dart';
 import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/settings.dart';
@@ -105,6 +106,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Column(
         children: [
           _buildUserInfo(context),
+          const SizedBox(height: 16),
+          const Divider(),
+          const SizedBox(height: 8),
           _SectionTitle('Apariencia'),
           _buildAppearance(settings),
           const SizedBox(height: 12),
@@ -114,7 +118,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Divider(),
           _SectionTitle('Aplicación'),
           ListTile(
-            leading: const Icon(Icons.download_for_offline_outlined),
+            leading: const HugeIcon(
+              icon: HugeIcons.strokeRoundedDownloadSquare01,
+            ),
             title: const Text('Comprobar yt-dlp'),
             subtitle: Text(_ytdlpSubtitle()),
             trailing: _checking
@@ -124,7 +130,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : IconButton(
-                    icon: const Icon(Icons.refresh),
+                    icon: const HugeIcon(icon: HugeIcons.strokeRoundedRefresh),
                     onPressed: _checkYtdlp,
                   ),
           ),
@@ -140,21 +146,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _SectionTitle('Almacenamiento'),
           if (_dirs != null) ...[
             ListTile(
-              leading: const Icon(Icons.folder),
+              leading: const HugeIcon(icon: HugeIcons.strokeRoundedFolder01),
               title: const Text('Biblioteca (canciones .opus)'),
               subtitle: Text(_dirs!.cache),
             ),
             ListTile(
-              leading: const Icon(Icons.image_outlined),
+              leading: const HugeIcon(icon: HugeIcons.strokeRoundedImage01),
               title: const Text('Miniaturas'),
               subtitle: Text(_dirs!.thumbs),
             ),
             ListTile(
-              leading: const Icon(Icons.storage),
+              leading: const HugeIcon(icon: HugeIcons.strokeRoundedDatabase),
               title: const Text('Temporal'),
               subtitle: Text(_dirs!.tmp),
             ),
           ],
+          const SizedBox(height: 32),
+          _buildFooter(context),
         ],
       ),
     );
@@ -162,36 +170,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildUserInfo(BuildContext context) {
+    // Solo el avatar por ahora: en el futuro abrirá "sincronizar con la nube"
+    // o "crear mi cuenta de OfflineAudio Cloud".
+    return Center(
+      child: CircleAvatar(
+        radius: 28,
+        child: HugeIcon(
+          icon: HugeIcons.strokeRoundedUser,
+          size: 32,
+          color: Theme.of(context).colorScheme.onSurface,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFooter(BuildContext context) {
     final subtle = Theme.of(context).colorScheme.onSurface
-        .withValues(alpha: 0.6);
+        .withValues(alpha: 0.45);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          const CircleAvatar(radius: 24, child: Icon(Icons.person, size: 28)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'OfflineAudio',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'OfflineAudio 1.0 · uso personal.\n'
-                  'Uso exclusivo de contenidos que tienes derecho a descargar.',
-                  style: TextStyle(fontSize: 12, color: subtle),
-                ),
-              ],
-            ),
-          ),
-        ],
+      child: Text(
+        'OfflineAudio 1.0 · uso personal.\n'
+        'Uso exclusivo de contenidos que tienes derecho a descargar.',
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 12, color: subtle),
       ),
     );
   }
@@ -229,7 +231,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         segments: const [
           ButtonSegment(
             value: ThemeMode.light,
-            icon: Icon(Icons.light_mode_outlined),
+            icon: HugeIcon(icon: HugeIcons.strokeRoundedSun01, size: 24),
             label: Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: Text('Claro'),
@@ -237,7 +239,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           ButtonSegment(
             value: ThemeMode.dark,
-            icon: Icon(Icons.dark_mode_outlined),
+            icon: HugeIcon(icon: HugeIcons.strokeRoundedMoon02, size: 24),
             label: Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: Text('Oscuro'),
@@ -245,7 +247,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           ButtonSegment(
             value: ThemeMode.system,
-            icon: Icon(Icons.brightness_auto_outlined),
+            icon: HugeIcon(icon: HugeIcons.strokeRoundedMagicWand01, size: 24),
             label: Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: Text('Sistema'),
@@ -275,7 +277,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ListTile(
-          leading: const Icon(Icons.build_outlined),
+          leading: const HugeIcon(icon: HugeIcons.strokeRoundedWrench01),
           title: const Text('Binarios yt-dlp / ffmpeg'),
           subtitle: Text(status),
           trailing: _downloading
@@ -286,7 +288,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 )
               : FilledButton.tonalIcon(
                   onPressed: installed ? null : _downloadBinaries,
-                  icon: const Icon(Icons.download, size: 18),
+                  icon: const HugeIcon(
+                    icon: HugeIcons.strokeRoundedDownload01,
+                    size: 18,
+                  ),
                   label: Text(installed ? 'Instalados' : 'Descargar'),
                 ),
         ),
