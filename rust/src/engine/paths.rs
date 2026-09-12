@@ -73,6 +73,7 @@ pub fn free_disk_bytes(path: &Path) -> Result<u64> {
 pub fn free_disk_bytes(path: &Path) -> Result<u64> {
     use std::os::windows::ffi::OsStrExt;
     use winapi::shared::minwindef::BOOL;
+    use winapi::shared::winnt::ULARGE_INTEGER;
     use winapi::um::fileapi::GetDiskFreeSpaceExW;
 
     let wide: Vec<u16> = path
@@ -81,17 +82,25 @@ pub fn free_disk_bytes(path: &Path) -> Result<u64> {
         .chain(std::iter::once(0))
         .collect();
 
-    let mut free_available: u64 = 0;
-    let mut total: u64 = 0;
-    let mut free: u64 = 0;
+    let mut free_available: ULARGE_INTEGER = unsafe { std::mem::zeroed() };
+    let mut total: ULARGE_INTEGER = unsafe { std::mem::zeroed() };
+    let mut free: ULARGE_INTEGER = unsafe { std::mem::zeroed() };
 
-    let ok: BOOL =
-        unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut free_available, &mut total, &mut free) };
+    let ok: BOOL = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut free_available,
+            &mut total,
+            &mut free,
+        )
+    };
     if ok == 0 {
         return Err(anyhow::anyhow!(
             "GetDiskFreeSpaceEx failed for {}",
             path.display()
         ));
     }
-    Ok(free_available)
+    // En x64 el union es un solo QuadPart; en x86 hay una HighPart.
+    let bytes = unsafe { *free_available.QuadPart() };
+    Ok(bytes)
 }
