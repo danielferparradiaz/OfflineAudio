@@ -125,7 +125,9 @@ jobs:
       - name: Install Android NDK
         shell: bash
         run: |
-          yes | sdkmanager "ndk;28.2.13676358" > /dev/null || true
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKMANAGER" ] || SDKMANAGER="$(command -v sdkmanager)"
+          yes | "$SDKMANAGER" "ndk;28.2.13676358" > /dev/null || true
       - name: Android keystore
         shell: bash
         run: |
@@ -150,8 +152,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p ../dist
-          for f in build/app/outputs/flutter-apk/app-*.apk; do
-            abi=$(basename "$f" | sed -E 's/app-([a-z0-9]+)-release.apk/\1/')
+          for f in build/app/outputs/flutter-apk/app-*-release.apk; do
+            abi=$(basename "$f" | sed -E 's/app-(.*)-release.apk/\1/')
             cp "$f" "../dist/OfflineAudio-android-${abi}.apk"
           done
           cp build/app/outputs/bundle/release/app-release.aab ../dist/OfflineAudio-android.aab
