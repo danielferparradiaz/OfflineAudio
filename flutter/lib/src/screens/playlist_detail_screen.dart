@@ -211,6 +211,13 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                 ],
               ),
             ),
+            if (isApplePlatform) ...[
+              const SizedBox(width: 12),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 6),
+                child: ReorderGrip(),
+              ),
+            ],
           ],
         ),
       ),

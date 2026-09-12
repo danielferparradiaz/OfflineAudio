@@ -3,6 +3,7 @@ import 'package:hugeicons/hugeicons.dart';
 import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/engine/models.dart';
+import 'package:offline_audio_app/src/widgets/reorder_grip.dart';
 
 /// Modal sheet that shows the current playback queue with live search
 /// filtering and drag-to-reorder. Presented as a Material bottom sheet so it
@@ -176,15 +177,9 @@ class _QueueSheetState extends State<QueueSheet> {
                           },
                           trailing: ReorderableDragStartListener(
                             index: index,
-                            child: Padding(
-                              padding: const EdgeInsets.all(4),
-                              child: HugeIcon(
-                                icon: HugeIcons.strokeRoundedMenu01,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurface
-                                    .withValues(alpha: 0.55),
-                              ),
+                            child: const Padding(
+                              padding: EdgeInsets.all(4),
+                              child: ReorderGrip(),
                             ),
                           ),
                         );
