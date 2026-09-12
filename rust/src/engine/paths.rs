@@ -73,7 +73,7 @@ pub fn free_disk_bytes(path: &Path) -> Result<u64> {
 pub fn free_disk_bytes(path: &Path) -> Result<u64> {
     use std::os::windows::ffi::OsStrExt;
     use winapi::shared::minwindef::BOOL;
-    use winapi::shared::winnt::ULARGE_INTEGER;
+    use winapi::um::winnt::ULARGE_INTEGER;
     use winapi::um::fileapi::GetDiskFreeSpaceExW;
 
     let wide: Vec<u16> = path
