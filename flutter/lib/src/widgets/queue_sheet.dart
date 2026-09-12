@@ -100,12 +100,15 @@ class _QueueSheetState extends State<QueueSheet> {
             const Divider(height: 1),
             Expanded(
               child: queue.isEmpty
-                  ? const Padding(
-                      padding: EdgeInsets.all(24),
+                  ? Padding(
+                      padding: const EdgeInsets.all(24),
                       child: Center(
                         child: Text(
                           'La cola está vacía',
-                          style: TextStyle(color: Colors.white54),
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface
+                                .withValues(alpha: 0.6),
+                          ),
                         ),
                       ),
                     )
@@ -173,11 +176,14 @@ class _QueueSheetState extends State<QueueSheet> {
                           },
                           trailing: ReorderableDragStartListener(
                             index: index,
-                            child: const Padding(
-                              padding: EdgeInsets.all(4),
+                            child: Padding(
+                              padding: const EdgeInsets.all(4),
                               child: HugeIcon(
                                 icon: HugeIcons.strokeRoundedMenu01,
-                                color: Colors.white38,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withValues(alpha: 0.55),
                               ),
                             ),
                           ),

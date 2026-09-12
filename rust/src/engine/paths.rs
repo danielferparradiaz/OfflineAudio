@@ -73,8 +73,8 @@ pub fn free_disk_bytes(path: &Path) -> Result<u64> {
 pub fn free_disk_bytes(path: &Path) -> Result<u64> {
     use std::os::windows::ffi::OsStrExt;
     use winapi::shared::minwindef::BOOL;
-    use winapi::um::winnt::ULARGE_INTEGER;
     use winapi::um::fileapi::GetDiskFreeSpaceExW;
+    use winapi::um::winnt::ULARGE_INTEGER;
 
     let wide: Vec<u16> = path
         .as_os_str()
@@ -86,14 +86,8 @@ pub fn free_disk_bytes(path: &Path) -> Result<u64> {
     let mut total: ULARGE_INTEGER = unsafe { std::mem::zeroed() };
     let mut free: ULARGE_INTEGER = unsafe { std::mem::zeroed() };
 
-    let ok: BOOL = unsafe {
-        GetDiskFreeSpaceExW(
-            wide.as_ptr(),
-            &mut free_available,
-            &mut total,
-            &mut free,
-        )
-    };
+    let ok: BOOL =
+        unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut free_available, &mut total, &mut free) };
     if ok == 0 {
         return Err(anyhow::anyhow!(
             "GetDiskFreeSpaceEx failed for {}",

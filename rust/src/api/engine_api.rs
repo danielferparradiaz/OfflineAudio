@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 use crate::frb_generated::StreamSink;
 
 use crate::engine::events::Event;
-use crate::engine::models::{ContentKind, Playlist, ProbeInfo, SearchHistoryEntry, SortOrder, Track};
+use crate::engine::models::{
+    ContentKind, Playlist, ProbeInfo, SearchHistoryEntry, SortOrder, Track,
+};
 use crate::engine::{pipeline, AppEngine};
 
 /// The single shared engine instance.

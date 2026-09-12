@@ -329,21 +329,17 @@ impl AppDatabase {
     /// Record a search query for a given source, deduplicating by (query, source).
     pub async fn record_search(&self, query: &str, source: &str) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        sqlx::query(
-            "DELETE FROM search_history WHERE query = ? AND source = ?",
-        )
-        .bind(query)
-        .bind(source)
-        .execute(&self.pool)
-        .await?;
-        sqlx::query(
-            "INSERT INTO search_history (query, source, created_at) VALUES (?, ?, ?)",
-        )
-        .bind(query)
-        .bind(source)
-        .bind(&now)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("DELETE FROM search_history WHERE query = ? AND source = ?")
+            .bind(query)
+            .bind(source)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("INSERT INTO search_history (query, source, created_at) VALUES (?, ?, ?)")
+            .bind(query)
+            .bind(source)
+            .bind(&now)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

@@ -9,16 +9,17 @@ Stack: motor Rust (`rust/`) + UI Flutter (`flutter/`) con `flutter_rust_bridge`.
 
 ## Descarga
 
-Los instaladores se generan automáticamente y se publican en la pestaña
-**[Releases](https://github.com/danielferparradiaz/OfflineAudio/releases)** de
-este repo al crear un tag `v*`.
+Los instaladores se compilan automáticamente en GitHub Actions y se publican en
+la pestaña **[Releases](https://github.com/danielferparradiaz/OfflineAudio/releases)**
+de este repo al crear un tag `v*`.
 
 | Dispositivo | Archivo | Cómo instalar |
 | ----------- | ------- | ------------- |
-| **macOS** (Apple Silicon / Intel) | `OfflineAudio-macos-<versión>.zip` | Descomprimir y arrastrar `OfflineAudio.app` a Aplicaciones |
-| **Windows** (10/11) | `OfflineAudio-windows-<versión>.zip` | Descomprimir y ejecutar `OfflineAudio.exe` |
-| **iPhone / iPad** | `OfflineAudio-ios-<versión>.ipa` | Instalar vía TestFlight o tu distribuidor |
-| **Android** | `OfflineAudio-android-<versión>-arm64-v8a.apk` (y variantes) + `.aab` | Permitir «orígenes desconocidos» e instalar el APK de tu arquitectura |
+| **macOS** (Apple Silicon / Intel) | `OfflineAudio-macos.dmg` (o `.zip`) | Abrir el DMG y arrastrar `OfflineAudio.app` a Aplicaciones |
+| **Windows** (10/11) | `OfflineAudio-windows.zip` | Descomprimir y ejecutar `OfflineAudio.exe` |
+| **Linux** (x64) | `OfflineAudio-linux.tar.gz` | Descomprimir la carpeta y ejecutar el binario `offline_audio` |
+| **iPhone / iPad** | `OfflineAudio-ios-altstore.ipa` | Instalar con **AltStore** o **Sideloadly** (firma el instalador tu cuenta de Apple). La versión oficial llegará **próximamente a la App Store** |
+| **Android** | `OfflineAudio-android-arm64-v8a.apk` (y variantes `armeabi-v7a`, `x86_64`) + `.aab` | Permitir «orígenes desconocidos» e instalar el APK de tu arquitectura (arm64 en la mayoría de móviles) |
 
 > **Motor en móvil:** en Android el motor descarga los binarios `yt-dlp` y
 > `ffmpeg` la primera vez (te lo pregunta al abrir la app). Puedes gestionarlos
@@ -45,9 +46,12 @@ este repo al crear un tag `v*`.
 
 - [ ] **Apple Watch (reloj)** — soporte para ver y controlar el reproductor desde
       la muñeca (`voo_watch`), con estado de reproducción y cola.
-- [ ] **iOS** — fuente fiable de binarios estáticos del motor (descarga automática
-      igual que Android; hoy solo se soporta en Android).
-- [ ] Instaladores nativos (DMG para macOS, MSIX/NSIS para Windows).
+- [ ] **iOS en App Store** — la app ya se distribuye como IPA sin firmar para
+      AltStore/Sideloadly; falta la descarga automática de binarios estáticos del
+      motor en el dispositivo (hoy solo se descarga en Android) y el lanzamiento
+      oficial.
+- [ ] Instalador nativo de **Windows** (MSIX/NSIS; hoy se distribuye como `.zip`
+      portable).
 
 ## Desarrollar
 
@@ -86,8 +90,9 @@ adjunta a la release. Para iOS/Android con firma real necesitas configurar estos
 | `KEYSTORE_BASE64` | Android upload keystore en base64 (`base64 -i release.jks`) |
 | `KEYSTORE_PASSWORD` / `KEY_ALIAS` / `KEY_PASSWORD` | Credenciales del keystore de Android |
 
-Si no los pones, el workflow sigue generando los artefactos de escritorio y un
-Android APK firmado con la clave de debug.
+Si no los pones, el workflow sigue generando los artefactos de escritorio, un
+APK de Android firmado con la clave de debug y un IPA de iOS sin firmar para
+AltStore/Sideloadly.
 
 ## Datos
 

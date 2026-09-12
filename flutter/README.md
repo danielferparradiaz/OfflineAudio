@@ -34,11 +34,13 @@ Motor: `cd ../rust && cargo test`.
 - `lib/src/app_model.dart`: `ChangeNotifier` central. Suscrito a `eventStream()`,
   expone `library/downloads/playlists`, `position/duration/isPlaying`, `seek`, `skipNext/Previous`.
 - `lib/src/screens/`: `library_screen` (búsqueda backend con debounce 350ms + orden),
-  `add_screen` (probe → download), `downloads_screen` (progreso %/MB/velocidad/ETA + errores),
+  `add_screen` (probe → download), `downloads_screen` (progreso %/MB/velocidad/ETA + errores
+  + sugerencias/recomendaciones buscables),
   `playlists_screen` (crear/renombrar/borrar con confirmación),
   `playlist_detail_screen` (`ReorderableListView` → `reorderPlaylist`),
-  `settings_screen` (estado yt-dlp + rutas).
-- `lib/src/widgets/player_bar.dart`: título/artista + slider seek + prev/play/next.
+  `settings_screen` (estado yt-dlp + rutas + sync + chequeo de versión).
+- `lib/src/widgets/player_bar.dart`: título/artista + slider seek + prev/play/next y
+  apertura de la cola ("Tracklist") tocando la barra; `queue_sheet.dart` con reordenado.
 - `lib/src/rust/`: código generado, no editar a mano.
 
 ## Notas
