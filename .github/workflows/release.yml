@@ -66,6 +66,36 @@ jobs:
           channel: stable
           cache: true
       - uses: dtolnay/rust-toolchain@stable
+      # En Windows, MSBuild se traga el stderr del custom build de cargokit
+      # (solo se ve "exited with code -1"). Pre-compilamos la lib aquí con el
+      # MISMO env que genera cargokit.cmake para ver errores reales; además,
+      # la cachea en CARGOKIT_TARGET_TEMP_DIR para que el paso de flutter sea
+      # incremental (las rutas coinciden con las que usa build_tool).
+      - name: Pre-build Rust lib (y exponer errores de cargokit)
+        shell: pwsh
+        working-directory: flutter
+        run: |
+          $repoRoot = (Resolve-Path '..').Path
+          $cargokitRoot = "$repoRoot\rust_builder\cargokit"
+          $manifestDir = "$repoRoot\rust"
+          $temp = "$repoRoot\flutter\build\windows\x64\cargokit_build"
+          $toolTemp = "$temp\tool"
+          $out = "$repoRoot\flutter\build\windows\x64\Release"
+          New-Item -ItemType Directory -Force -Path $toolTemp,$out | Out-Null
+          $env:CARGOKIT_CMAKE = (Get-Command cmake.exe).Source
+          $env:CARGOKIT_CONFIGURATION = 'Release'
+          $env:CARGOKIT_MANIFEST_DIR = $manifestDir
+          $env:CARGOKIT_TARGET_TEMP_DIR = $temp
+          $env:CARGOKIT_OUTPUT_DIR = $out
+          $env:CARGOKIT_TARGET_PLATFORM = 'windows-x64'
+          $env:CARGOKIT_TOOL_TEMP_DIR = $toolTemp
+          $env:CARGOKIT_ROOT_PROJECT_DIR = "$repoRoot\flutter"
+          cargo build --manifest-path "$manifestDir\Cargo.toml" -p offline_audio --release `
+            --target x86_64-pc-windows-msvc --target-dir "$temp"
+          if ($LASTEXITCODE -ne 0) { Write-Error "cargo falló ($LASTEXITCODE)"; exit $LASTEXITCODE }
+          cmd /c "call ""$cargokitRoot\run_build_tool.cmd"" build-cmake" 2>&1
+          if ($LASTEXITCODE -ne 0) { Write-Error "run_build_tool falló ($LASTEXITCODE)"; exit $LASTEXITCODE }
+          Get-ChildItem -Path $out | Select-Object -ExpandProperty Name
       - run: flutter pub get
       - run: flutter build windows --release
       - name: Bundle
