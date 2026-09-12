@@ -307,7 +307,8 @@ class _HomeShellState extends State<HomeShell> {
               'Descargas',
               badge: _completedCount(),
             ),
-            _sideItem(context, 2, HugeIcons.strokeRoundedQueue01, 'Playlists'),
+            _sideItem(context, 2, HugeIcons.strokeRoundedQueue01,
+                'Listas de reproducción'),
             const Spacer(),
             const Divider(height: 1),
             Padding(
@@ -414,7 +415,7 @@ class _HomeShellState extends State<HomeShell> {
             'Descargas',
             badge: _completedCount(),
           ),
-          _iosTab(HugeIcons.strokeRoundedQueue01, 'Playlists'),
+          _iosTab(HugeIcons.strokeRoundedQueue01, 'Listas de reproducción'),
         ],
       ),
       tabBuilder: (context, index) => Scaffold(
@@ -541,7 +542,7 @@ class _HomeShellState extends State<HomeShell> {
               'Descargas',
               completedCount: _completedCount(),
             ),
-            _navButton(2, HugeIcons.strokeRoundedQueue01, 'Playlists'),
+            _navButton(2, HugeIcons.strokeRoundedQueue01, 'Listas de reproducción'),
           ],
         ),
       ),
@@ -581,12 +582,21 @@ class _HomeShellState extends State<HomeShell> {
               child: selected
                   ? Padding(
                       padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        label,
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: scheme.onSurface.withValues(alpha: 0.8),
-                          fontWeight: FontWeight.w600,
+                      // Límite de ancho para que el nuevo nombre largo
+                      // ("Listas de reproducción") no desborde el
+                      // BottomAppBar en pantallas estrechas.
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 108),
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: scheme.onSurface.withValues(alpha: 0.8),
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     )

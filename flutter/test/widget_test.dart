@@ -47,7 +47,8 @@ void main() {
 
   testWidgets('PlaylistsScreen shows empty state', (WidgetTester tester) async {
     await tester.pumpWidget(_wrap(const PlaylistsScreen()));
-    expect(find.text('Playlists'), findsOneWidget);
-    expect(find.textContaining('Aún no hay playlists'), findsOneWidget);
+    expect(find.text('Listas de reproducción'), findsOneWidget);
+    expect(find.textContaining('Aún no hay listas de reproducción'),
+        findsOneWidget);
   });
 }

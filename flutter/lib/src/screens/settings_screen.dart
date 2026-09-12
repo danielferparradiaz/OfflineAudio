@@ -1,9 +1,13 @@
+import 'dart:convert';
+import 'dart:io' show HttpClient;
+
 import 'package:flutter/cupertino.dart' show CupertinoSegmentedControl;
 import 'package:flutter/material.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/settings.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -22,6 +26,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _ytUrlController = TextEditingController();
   final _ffmpegUrlController = TextEditingController();
 
+  /// Versión de la app instalada (pubspec `version:`) y resultado del
+  /// chequeo contra el último release publicado en GitHub.
+  String _appVersion = '…';
+  String? _updateMessage;
+  bool _checkingUpdate = false;
+
+  static const _releasesApi =
+      'https://api.github.com/repos/danielferparradiaz/OfflineAudio/'
+      'releases/latest';
+
   @override
   void initState() {
     super.initState();
@@ -36,6 +50,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _load() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) setState(() => _appVersion = info.version);
     try {
       final ytdlp = await getYtdlpStatus();
       final dirs = await appDirs();
@@ -98,6 +114,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  /// Comprueba si hay una release más nueva en GitHub y la compara con la
+  /// versión instalada (semver simple). La app no se auto-actualiza: en iOS/
+  /// Android lo gestionan las stores y en escritorio se enlaza la descarga.
+  Future<void> _checkAppVersion() async {
+    setState(() {
+      _checkingUpdate = true;
+      _updateMessage = null;
+    });
+    try {
+      final req = await HttpClient().getUrl(Uri.parse(_releasesApi));
+      req.headers.set('Accept', 'application/vnd.github+json');
+      final res = await req.close();
+      final body = await res.transform(utf8.decoder).join();
+      if (res.statusCode == 404) {
+        if (mounted) {
+          setState(
+            () => _updateMessage =
+                'Sin releases publicadas; llevas la última build',
+          );
+        }
+        return;
+      }
+      if (res.statusCode != 200) {
+        if (mounted) {
+          setState(
+            () => _updateMessage =
+                'GitHub respondió ${res.statusCode}; inténtalo más tarde',
+          );
+        }
+        return;
+      }
+      final tag = (jsonDecode(body) as Map<String, dynamic>)['tag_name']
+          ?.toString()
+          .replaceFirst(RegExp(r'^[vV]'), '');
+      if (tag == null || tag.isEmpty) return;
+      if (!mounted) return;
+      if (_isNewer(tag, _appVersion)) {
+        setState(() => _updateMessage = 'Nueva versión disponible: v$tag');
+      } else {
+        setState(() => _updateMessage = 'OfflineAudio está actualizado');
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _updateMessage = 'Sin conexión; no se pudo comprobar');
+      }
+    } finally {
+      if (mounted) setState(() => _checkingUpdate = false);
+    }
+  }
+
+  /// Compara semver "x.y.z": true si [remote] es más nueva que [local].
+  static bool _isNewer(String remote, String local) {
+    List<int> parts(String v) => v
+        .split('.')
+        .map((p) => int.tryParse(p.replaceAll(RegExp(r'[^0-9].*$'), '')) ?? 0)
+        .toList();
+    final r = parts(remote);
+    final l = parts(local);
+    for (var i = 0; i < 3; i++) {
+      final rv = i < r.length ? r[i] : 0;
+      final lv = i < l.length ? l[i] : 0;
+      if (rv != lv) return rv > lv;
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = SettingsScope.of(context);
@@ -117,6 +199,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildBinaries(settings),
           const Divider(),
           _SectionTitle('Aplicación'),
+          ListTile(
+            leading: const HugeIcon(
+              icon: HugeIcons.strokeRoundedCloudSavingDone01,
+            ),
+            title: const Text('Versión de OfflineAudio'),
+            subtitle: Text('v$_appVersion instalada'),
+            trailing: _checkingUpdate
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : IconButton(
+                    icon: const HugeIcon(icon: HugeIcons.strokeRoundedRefresh),
+                    onPressed: _checkAppVersion,
+                  ),
+          ),
+          if (_updateMessage != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                _updateMessage!,
+                style: TextStyle(color: Theme.of(context).colorScheme.primary),
+              ),
+            ),
+          const Divider(),
           ListTile(
             leading: const HugeIcon(
               icon: HugeIcons.strokeRoundedDownloadSquare01,
@@ -170,17 +278,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildUserInfo(BuildContext context) {
-    // Solo el avatar por ahora: en el futuro abrirá "sincronizar con la nube"
-    // o "crear mi cuenta de OfflineAudio Cloud".
-    return Center(
-      child: CircleAvatar(
-        radius: 28,
-        child: HugeIcon(
-          icon: HugeIcons.strokeRoundedUser,
-          size: 32,
-          color: Theme.of(context).colorScheme.onSurface,
+    return Column(
+      children: [
+        CircleAvatar(
+          radius: 28,
+          child: HugeIcon(
+            icon: HugeIcons.strokeRoundedUser,
+            size: 32,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
         ),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () => _showSyncInfo(context),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    HugeIcon(
+                      icon: HugeIcons.strokeRoundedCloud,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'Sync',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Explica la utilidad de Sync: mantener biblioteca, listas de reproducción
+  /// y vídeos sincronizados entre dispositivos con la cuenta de OfflineAudio.
+  Future<void> _showSyncInfo(BuildContext context) async {
+    await showAppDialog<void>(
+      context,
+      title: const Text('Sync'),
+      content: const Text(
+        'Sync mantendrá tu biblioteca, listas de reproducción y vídeos '
+        'sincronizados entre todos tus dispositivos con tu cuenta de '
+        'OfflineAudio Cloud.\n\nAsí podrás seguir una reproducción en otro '
+        'dispositivo sin volver a descargar nada.\n\nDisponible '
+        'próximamente.',
       ),
+      actions: [AppDialogAction(label: 'Entendido', isDefault: true)],
     );
   }
 

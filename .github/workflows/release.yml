@@ -19,17 +19,34 @@ jobs:
           channel: stable
           cache: true
       - uses: dtolnay/rust-toolchain@stable
+      # Workaround para flutter/flutter#191575: en stable, el windowing nunca
+      # está activo (master-only), pero TFA retiene `_Rect` y gen_snapshot se
+      # cuelga en macOS release. Forzamos la constante a false en el SDK.
+      - name: Patch windowing gen_snapshot crash
+        shell: bash
+        working-directory: .
+        run: |
+          F="$FLUTTER_ROOT/packages/flutter/lib/src/foundation/_features.dart"
+          FGREP="bool isWindowingEnabled = debugEnabledFeatureFlags.contains('windowing');"
+          if grep -qF "$FGREP" "$F"; then
+            sed -i '' "s|$FGREP|const bool isWindowingEnabled = false;|" "$F"
+            rm -rf "$FLUTTER_ROOT/bin/cache/flutter_tools.snapshot" 2>/dev/null || true
+          fi
       - run: flutter pub get
       - run: flutter build macos --release
       - name: Bundle
         run: |
           mkdir -p ../dist
           cd build/macos/Build/Products/Release
+          hdiutil create -volname OfflineAudio -srcfolder OfflineAudio.app \
+            -ov -format UDZO "$GITHUB_WORKSPACE/dist/OfflineAudio-macos.dmg"
           zip -qr "$GITHUB_WORKSPACE/dist/OfflineAudio-macos.zip" "OfflineAudio.app"
       - uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: dist/OfflineAudio-macos.zip
+          path: |
+            dist/OfflineAudio-macos.zip
+            dist/OfflineAudio-macos.dmg
 
   windows:
     name: 'Build Windows'
@@ -39,6 +56,11 @@ jobs:
         working-directory: flutter
     steps:
       - uses: actions/checkout@v4
+      - name: Enable long paths (cargokit/Rust supera MAX_PATH sin esto)
+        shell: pwsh
+        run: |
+          git config --system core.longpaths true
+          New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -72,7 +94,7 @@ jobs:
       - name: System deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libmpv-dev mpv
       - run: flutter pub get
       - run: flutter build linux --release
       - name: Bundle
@@ -97,6 +119,13 @@ jobs:
           channel: stable
           cache: true
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android
+      # El NDK exacto que espera flutter.ndkVersion.
+      - name: Install Android NDK
+        shell: bash
+        run: |
+          yes | sdkmanager "ndk;28.2.13676358" > /dev/null || true
       - name: Android keystore
         shell: bash
         run: |
@@ -140,6 +169,9 @@ jobs:
     steps:
       - name: Detect signing identity
         shell: bash
+        # Anula el working-directory por defecto: este paso corre ANTES del
+        # checkout y "flutter/" aún no existe.
+        working-directory: .
         run: |
           if [ -z "$CERTIFICATE_P12_BASE64" ]; then
             echo "No Apple signing secrets; skipping iOS build."
@@ -148,14 +180,17 @@ jobs:
         env:
           CERTIFICATE_P12_BASE64: ${{ secrets.CERTIFICATE_P12_BASE64 }}
       - uses: actions/checkout@v4
-        if: env.SKIP_IOS != 'true'
+      # Con secretos: IPA firmado (app-store connect). Sin secretos: IPA sin
+      # firmar para AltStore/Sideloadly.
+      - name: Rust targets (iOS)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
       - uses: subosito/flutter-action@v2
-        if: env.SKIP_IOS != 'true'
         with:
           channel: stable
           cache: true
-      - uses: dtolnay/rust-toolchain@stable
-        if: env.SKIP_IOS != 'true'
+      - run: flutter pub get
       - name: Import signing identity
         if: env.SKIP_IOS != 'true'
         shell: bash
@@ -175,8 +210,6 @@ jobs:
           CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
           PROVISIONING_PROFILES_BASE64: ${{ secrets.PROVISIONING_PROFILES_BASE64 }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-      - run: flutter pub get
-        if: env.SKIP_IOS != 'true'
       - name: Export options
         if: env.SKIP_IOS != 'true'
         shell: bash
@@ -196,16 +229,27 @@ jobs:
           EXPORT_TEAM_ID: ${{ secrets.EXPORT_TEAM_ID }}
       - run: flutter build ipa --release --export-options-plist=exportOptions.plist
         if: env.SKIP_IOS != 'true'
-      - name: Bundle
+      - name: Bundle (firmado)
         if: env.SKIP_IOS != 'true'
         run: |
           mkdir -p ../dist
           cp build/ios/ipa/*.ipa ../dist/OfflineAudio-ios.ipa
+      # Sin secretos de firma: IPA sin firmar, instalable con AltStore/
+      # Sideloadly (ambos firman con la cuenta Apple del usuario).
+      - name: Build IPA sin firmar
+        if: env.SKIP_IOS == 'true'
+        run: flutter build ios --release --no-codesign
+      - name: Bundle (AltStore/Sideloadly)
+        if: env.SKIP_IOS == 'true'
+        run: |
+          mkdir -p ../dist Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qr ../dist/OfflineAudio-ios-altstore.ipa Payload
       - uses: actions/upload-artifact@v4
-        if: env.SKIP_IOS != 'true'
         with:
           name: iphone
-          path: dist/OfflineAudio-ios.ipa
+          path: dist/
+        if: always()
 
   publish:
     name: 'Create GitHub Release'

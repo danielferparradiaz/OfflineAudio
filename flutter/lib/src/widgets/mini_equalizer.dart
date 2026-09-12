@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 /// Pequeño ecualizador animado (4 barras) para el pie de la cola y otras
-/// zonas "en vivo". Misma tónica visual que "View playlist": color tenue del
+/// zonas "en vivo". Misma tónica visual que "Ver lista": color tenue del
 /// texto. Solo anima cuando [active] es true; si no, las barras quedan bajas
 /// y estáticas.
 class MiniEqualizer extends StatefulWidget {

@@ -121,7 +121,7 @@ class TrackTile extends StatelessWidget {
         AppSheetItem(
           value: 'add_playlist',
           icon: HugeIcons.strokeRoundedQueue01,
-          label: 'Añadir a playlist',
+          label: 'Añadir a lista de reproducción',
         ),
         AppSheetItem(
           value: 'delete',
@@ -142,7 +142,7 @@ class TrackTile extends StatelessWidget {
   Future<void> _openAddToPlaylist(BuildContext context) async {
     final model = AppModelProvider.of(context);
     if (model.playlists.isEmpty) {
-      showAppSnackBar(context, message: 'Primero crea una playlist');
+      showAppSnackBar(context, message: 'Primero crea una lista de reproducción');
       return;
     }
     final chosen = await showAppBottomSheet<Playlist>(
@@ -150,7 +150,7 @@ class TrackTile extends StatelessWidget {
       title: const Padding(
         padding: EdgeInsets.only(top: 8),
         child: Text(
-          'Añadir a playlist',
+          'Añadir a lista de reproducción',
           textAlign: TextAlign.center,
           style: TextStyle(fontWeight: FontWeight.w600),
         ),

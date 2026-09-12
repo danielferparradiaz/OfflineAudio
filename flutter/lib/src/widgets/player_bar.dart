@@ -108,40 +108,53 @@ class PlayerBar extends StatelessWidget {
         children: [
           Row(
             children: [
-              leading,
-              const SizedBox(width: 8),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(color: scheme.onSurface),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
-                    ),
-                    if (!preview && model.isShuffleSession)
-                      GestureDetector(
-                        onTap: () => showQueueSheet(context),
-                        child: Text(
-                          'View playlist',
-                          style: TextStyle(
-                            color: scheme.onSurface.withValues(alpha: 0.55),
-                            fontSize: 11,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
+                child: GestureDetector(
+                  // Toda el área del track (miniatura, título, artista y el
+                  // hueco hasta los controles) despliega la tracklist cuando
+                  // hay una lista/aleatorio activo.
+                  behavior: HitTestBehavior.opaque,
+                  onTap: (!preview && model.isPlayingPlaylist)
+                      ? () => showQueueSheet(context)
+                      : null,
+                  child: Row(
+                    children: [
+                      leading,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              title,
+                              style: TextStyle(color: scheme.onSurface),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                            if (!preview && model.isPlayingPlaylist)
+                              Text(
+                                'Ver lista',
+                                style: TextStyle(
+                                  color: scheme.onSurface
+                                      .withValues(alpha: 0.55),
+                                  fontSize: 11,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
+                            if (subtitle.isNotEmpty)
+                              Text(
+                                subtitle,
+                                style: TextStyle(color: subtle, fontSize: 12),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
+                          ],
                         ),
                       ),
-                    if (subtitle.isNotEmpty)
-                      Text(
-                        subtitle,
-                        style: TextStyle(color: subtle, fontSize: 12),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1,
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
               if (isVideo)

@@ -18,7 +18,7 @@ class PlaylistDetailScreen extends StatefulWidget {
 
 class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   List<Track>? _tracks;
-  String _name = 'Playlist';
+  String _name = 'Lista de reproducción';
 
   @override
   void initState() {
@@ -94,7 +94,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                 : tracks.isEmpty
                 ? const Center(
                     child: Text(
-                      'Playlist vacía.\nAñade canciones desde la biblioteca.',
+                      'Lista vacía.\nAñade canciones desde la biblioteca.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.white54),
                     ),

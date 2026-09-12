@@ -70,7 +70,7 @@ class _QueueSheetState extends State<QueueSheet> {
                 children: [
                   const Expanded(
                     child: Text(
-                      'Cola de reproducción',
+                      'Tracklist',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,

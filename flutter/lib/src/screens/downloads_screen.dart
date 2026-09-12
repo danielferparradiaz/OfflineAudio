@@ -74,15 +74,14 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   final GlobalKey<RecentSearchesState> _recentKey = GlobalKey();
   String _currentQuery = '';
 
+  /// grupo TapRegion común entre el buscador y la lista de sugerencias:
+  /// solo los toques FUERA de ambos cierran las recomendaciones, así el tap
+  /// en una sugerencia siempre llega a su ListTile y lanza la búsqueda.
+  static const _searchRegion = 'downloads-search-region';
+
   @override
   void initState() {
     super.initState();
-    _searchFocusNode.addListener(() {
-      // Al perder el foco sin buscar, volvemos a la lista de descargas.
-      if (!_searchFocusNode.hasFocus && _showingRecent) {
-        setState(() => _showingRecent = false);
-      }
-    });
   }
 
   @override
@@ -296,11 +295,33 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     return SafeArea(
       child: Column(
         children: [
-          _buildFrostedTop(context),
-          Expanded(child: _buildContent(context, model)),
+          TapRegion(
+            groupId: _searchRegion,
+            child: _buildFrostedTop(context),
+          ),
+          Expanded(
+            child: _showingRecent
+                // Las sugerencias van en el mismo grupo TapRegion: un tap
+                // sobre ellas no las cierra; un tap fuera (lista de
+                // descargas, etc.) sí, vía onTapOutside.
+                ? TapRegion(
+                    groupId: _searchRegion,
+                    onTapOutside: (_) => _hideRecent(),
+                    child: _buildRecentSearches(context),
+                  )
+                : TapRegion(
+                    groupId: _searchRegion,
+                    onTapOutside: (_) => _hideRecent(),
+                    child: _buildContent(context, model),
+                  ),
+          ),
         ],
       ),
     );
+  }
+
+  void _hideRecent() {
+    if (_showingRecent) setState(() => _showingRecent = false);
   }
 
   Widget _buildContent(BuildContext context, AppModel model) {

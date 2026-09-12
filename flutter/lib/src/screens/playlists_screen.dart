@@ -15,18 +15,18 @@ class PlaylistsScreen extends StatelessWidget {
     final playlists = model.playlists;
 
     return AppPage(
-      title: 'Playlists',
+      title: 'Listas de reproducción',
       actions: [
         IconButton(
           icon: const HugeIcon(icon: HugeIcons.strokeRoundedAdd01),
-          tooltip: 'Nueva playlist',
+          tooltip: 'Nueva lista de reproducción',
           onPressed: () => _createPlaylist(context),
         ),
       ],
       body: playlists.isEmpty
           ? const Center(
               child: Text(
-                'Aún no hay playlists\nCrea una para agrupar canciones.',
+                'Aún no hay listas de reproducción\nCrea una para agrupar canciones.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white54),
               ),
@@ -95,7 +95,7 @@ class PlaylistsScreen extends StatelessWidget {
     final controller = TextEditingController();
     final name = await showAppDialog<String>(
       context,
-      title: const Text('Nueva playlist'),
+      title: const Text('Nueva lista de reproducción'),
       content: AppTextField(
         controller: controller,
         autofocus: true,
@@ -130,7 +130,7 @@ class PlaylistsScreen extends StatelessWidget {
     final controller = TextEditingController(text: p.name);
     final name = await showAppDialog<String>(
       context,
-      title: const Text('Renombrar playlist'),
+      title: const Text('Renombrar lista de reproducción'),
       content: AppTextField(
         controller: controller,
         autofocus: true,
@@ -164,7 +164,7 @@ class PlaylistsScreen extends StatelessWidget {
   Future<void> _confirmDelete(BuildContext context, Playlist p) async {
     final confirmed = await showAppDialog<bool>(
       context,
-      title: const Text('Borrar playlist'),
+      title: const Text('Borrar lista de reproducción'),
       content: Text(
         '¿Borrar «${p.name}»?\nLas canciones se conservan en la biblioteca.',
       ),

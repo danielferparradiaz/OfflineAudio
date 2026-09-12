@@ -54,8 +54,8 @@ class AppModel extends ChangeNotifier {
   bool _playingPlaylist = false;
 
   /// True while the "random playlist based on library" shuffle session is
-  /// active; the player bar shows a subtle "View playlist" label under the
-  /// track name.
+  /// active; la player bar muestra "Ver lista" para cualquier sesión de
+  /// lista (aleatoria o creada por el usuario, @see [isPlayingPlaylist]).
   bool _shuffleSession = false;
 
   Track? get currentTrack => _currentTrack;
