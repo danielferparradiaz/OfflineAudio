@@ -298,9 +298,11 @@ jobs:
         with:
           draft: true
           generate_release_notes: true
+          overwrite_files: true
           files: |
             artifacts/**/*.zip
             artifacts/**/*.tar.gz
             artifacts/**/*.apk
             artifacts/**/*.aab
             artifacts/**/*.ipa
+            artifacts/**/*.dmg
