@@ -47,10 +47,18 @@ class RecentSearchesState extends State<RecentSearches> {
   /// de modo que nunca se aplican resultados obsoletos ni se apilan llamadas.
   int _predSeq = 0;
 
+  /// Guard: el historial se carga una única vez, en `didChangeDependencies`
+  /// (no en initState, porque `AppModelProvider.of` usa dependOnInherited*,
+  /// que el framework prohíbe antes de que initState termine).
+  bool _historyLoaded = false;
+
   @override
-  void initState() {
-    super.initState();
-    _loadHistory();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_historyLoaded) {
+      _historyLoaded = true;
+      _loadHistory();
+    }
   }
 
   @override
