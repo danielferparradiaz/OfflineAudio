@@ -76,7 +76,7 @@ jobs:
         working-directory: flutter
         run: |
           $repoRoot = (Resolve-Path '..').Path
-          $cargokitRoot = "$repoRoot\rust_builder\cargokit"
+          $cargokitRoot = "$repoRoot\flutter\rust_builder\cargokit"
           $manifestDir = "$repoRoot\rust"
           $temp = "$repoRoot\flutter\build\windows\x64\cargokit_build"
           $toolTemp = "$temp\tool"
