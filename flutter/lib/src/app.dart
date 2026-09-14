@@ -496,8 +496,8 @@ class _HomeShellState extends State<HomeShell> {
                     CircleAvatar(
                       radius: 28,
                       child: HugeIcon(
-                        icon: HugeIcons.strokeRoundedUser,
-                        size: 32,
+                        icon: HugeIcons.strokeRoundedSettings01,
+                        size: 28,
                         color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 
 use crate::engine::models::ContentKind;
-use crate::engine::process::ffmpeg_bin;
+use crate::engine::process::{apply_lib_path, ffmpeg_bin};
 
 #[derive(Default)]
 pub struct AudioMeta {
@@ -70,6 +70,7 @@ fn stream_command(
     ]);
     let mut cmd = tokio::process::Command::new(bin);
     cmd.args(args).kill_on_drop(false);
+    apply_lib_path(&mut cmd);
     cmd
 }
 
@@ -107,6 +108,7 @@ pub fn convert_from_file(
     ]);
     let mut cmd = tokio::process::Command::new(bin);
     cmd.args(args).kill_on_drop(false);
+    apply_lib_path(&mut cmd);
     Ok(cmd)
 }
 

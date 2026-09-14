@@ -21,12 +21,23 @@ de este repo al crear un tag `v*`.
 | **iPhone / iPad** | `OfflineAudio-ios-altstore.ipa` | Instalar con **AltStore** o **Sideloadly** (firma el instalador tu cuenta de Apple). La versión oficial llegará **próximamente a la App Store** |
 | **Android** | `OfflineAudio-android-arm64-v8a.apk` (y variantes `armeabi-v7a`, `x86_64`) + `.aab` | Permitir «orígenes desconocidos» e instalar el APK de tu arquitectura (arm64 en la mayoría de móviles) |
 
-> **Motor en móvil:** en Android el motor descarga los binarios `yt-dlp` y
-> `ffmpeg` la primera vez (te lo pregunta al abrir la app). Puedes gestionarlos
-> en **Ajustes → Paquetes del motor**. En iOS la descarga automática aún es un
-> TODO (ver Roadmap). En el escritorio necesitas los binarios en `PATH`:
-> `brew install yt-dlp ffmpeg` (macOS) / `winget install yt-dlp.yt-dlp` y
-> `winget install Gyan.FFmpeg` (Windows).
+> **Binarios del motor (`yt-dlp` + `ffmpeg`):** la app los trae integrados
+> donde el sistema lo permite y solo consulta actualizaciones (`yt-dlp -U`
+> desde **Ajustes → Paquetes del motor**).
+>
+> | Plataforma | yt-dlp | ffmpeg |
+> | ---------- | ------ | ------ |
+> | Windows (`.zip`) | Integrado | Integrado |
+> | macOS (`.dmg`/`.zip`) | Integrado | Integrado (uno por arch) |
+> | Linux (`.tar.gz`) | Integrado | Integrado |
+> | Android (`.apk`) | Sin build oficial (ver nota) | Se descarga al pulsar **Descargar** |
+> | iOS | No disponible (sandbox) | No disponible (sandbox) |
+>
+> En **Ajustes → Paquetes del motor** hay campos de URL personalizada para
+> apuntar a tus propios builds. En Android no existe un binario oficial de
+> `yt-dlp` (glibc/musl frente a bionic): hasta publicar uno propio, las
+> descargas en Android necesitan esa URL. En iOS el sandbox prohíbe ejecutar
+> binarios externos, así que el soporte pasa por librerías (ver Roadmap).
 
 ## Búsqueda y vídeo
 
@@ -47,9 +58,10 @@ de este repo al crear un tag `v*`.
 - [ ] **Apple Watch (reloj)** — soporte para ver y controlar el reproductor desde
       la muñeca (`voo_watch`), con estado de reproducción y cola.
 - [ ] **iOS en App Store** — la app ya se distribuye como IPA sin firmar para
-      AltStore/Sideloadly; falta la descarga automática de binarios estáticos del
-      motor en el dispositivo (hoy solo se descarga en Android) y el lanzamiento
-      oficial.
+      AltStore/Sideloadly; falta el motor de descargas en el dispositivo (el
+      sandbox de iOS prohíbe ejecutar binarios externos como `yt-dlp`/`ffmpeg`,
+      así que hay que migrar a librerías: `ffmpeg-kit` + extracción sin
+      procesos hijo) y el lanzamiento oficial.
 - [ ] Instalador nativo de **Windows** (MSIX/NSIS; hoy se distribuye como `.zip`
       portable).
 

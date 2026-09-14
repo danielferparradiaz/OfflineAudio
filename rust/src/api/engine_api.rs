@@ -259,8 +259,9 @@ pub struct BinariesStatus {
     pub bin_dir: String,
 }
 
-/// Presence of the runtime binaries used by the engine. On mobile the app
-/// downloads them into `bin_dir`; on desktop they live in PATH.
+/// Presence of the runtime binaries used by the engine. Found in the app
+/// `bin_dir` (runtime download), next to the executable (bundled, e.g. the
+/// Windows .zip) or in PATH.
 #[flutter_rust_bridge::frb]
 pub async fn binaries_status() -> Result<BinariesStatus> {
     Ok(BinariesStatus {
@@ -272,44 +273,92 @@ pub async fn binaries_status() -> Result<BinariesStatus> {
     })
 }
 
-/// Default download sources for the Android runtime binaries. Overridable via
+/// Default download sources for the runtime binaries. Overridable via
 /// the `binary.ytdlp_url` / `binary.ffmpeg_url` settings (Ajustes > Paquetes).
 /// Host your own static builds (e.g. a `OfflineAudio-Binaries` release) and
 /// point these URLs there.
-#[cfg(target_os = "android")]
-const DEFAULT_YTDLP_URL: &str =
-    "https://github.com/danielferparradiaz/OfflineAudio-Binaries/releases/latest/download/yt-dlp";
-#[cfg(target_os = "android")]
+#[cfg(all(target_os = "android", target_arch = "aarch64"))]
 const DEFAULT_FFMPEG_URL: &str =
-    "https://github.com/danielferparradiaz/OfflineAudio-Binaries/releases/latest/download/ffmpeg";
+    "https://github.com/Tyrrrz/FFmpegBin/releases/latest/download/ffmpeg-android-arm64.zip";
+#[cfg(all(target_os = "android", target_arch = "arm"))]
+const DEFAULT_FFMPEG_URL: &str =
+    "https://github.com/Tyrrrz/FFmpegBin/releases/latest/download/ffmpeg-android-arm.zip";
+#[cfg(all(target_os = "android", target_arch = "x86_64"))]
+const DEFAULT_FFMPEG_URL: &str =
+    "https://github.com/Tyrrrz/FFmpegBin/releases/latest/download/ffmpeg-android-x64.zip";
+#[cfg(all(target_os = "android", target_arch = "x86"))]
+const DEFAULT_FFMPEG_URL: &str =
+    "https://github.com/Tyrrrz/FFmpegBin/releases/latest/download/ffmpeg-android-x86.zip";
+/// On desktop yt-dlp ships a standalone executable per OS in its official
+/// releases; it is downloaded into the app bin dir (found first by
+/// `ytdlp_bin`, ahead of any copy bundled next to the app executable).
+#[cfg(target_os = "windows")]
+const DEFAULT_YTDLP_URL: &str =
+    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+#[cfg(target_os = "windows")]
+const DEFAULT_YTDLP_NAME: &str = "yt-dlp.exe";
+#[cfg(target_os = "macos")]
+const DEFAULT_YTDLP_URL: &str =
+    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos";
+#[cfg(target_os = "linux")]
+const DEFAULT_YTDLP_URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp";
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+const DEFAULT_YTDLP_NAME: &str = "yt-dlp";
 
-/// Download yt-dlp + ffmpeg into the app binary dir. Only implemented for
-/// Android for now (iOS still needs a reliable static binary source — TODO).
+/// Download yt-dlp + ffmpeg into the app binary dir. On Android ffmpeg comes
+/// from per-ABI builds (Tyrrrz/FFmpegBin) and yt-dlp from the configured URL
+/// (no official Android build exists: glibc/musl vs bionic). On desktop
+/// yt-dlp comes from its official release and ffmpeg must already be present
+/// (bundled in the release archives or installed via the system package
+/// manager). iOS cannot execute external binaries (sandbox) — TODO
+/// library-based instead.
 #[flutter_rust_bridge::frb]
 pub async fn download_mobile_binaries() -> Result<()> {
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
     {
         let _ = engine_ref();
-        anyhow::bail!(
-            "La descarga automática de binarios solo está implementada en Android por ahora (iOS: TODO)."
-        );
+        anyhow::bail!("La descarga automática de binarios aún no está disponible en iOS.");
     }
 
-    #[cfg(target_os = "android")]
+    #[cfg(not(target_os = "ios"))]
     {
         let db = &engine_ref().db;
-        let yt_url = db
-            .get_setting("binary.ytdlp_url")
-            .await?
-            .unwrap_or_else(|| DEFAULT_YTDLP_URL.to_string());
-        let ff_url = db
-            .get_setting("binary.ffmpeg_url")
-            .await?
-            .unwrap_or_else(|| DEFAULT_FFMPEG_URL.to_string());
-
-        crate::engine::process::download_binary("yt-dlp", &yt_url).await?;
-        crate::engine::process::download_binary("ffmpeg", &ff_url).await?;
-        Ok(())
+        #[cfg(target_os = "android")]
+        {
+            let ff_url = db
+                .get_setting("binary.ffmpeg_url")
+                .await?
+                .unwrap_or_else(|| DEFAULT_FFMPEG_URL.to_string());
+            crate::engine::process::download_zip_binary("ffmpeg", &ff_url).await?;
+            // yt-dlp has no official Android build; only a user-provided URL
+            // (Ajustes > Paquetes > URLs personalizadas) can fill the gap.
+            match db.get_setting("binary.ytdlp_url").await? {
+                Some(yt_url) => {
+                    crate::engine::process::download_binary("yt-dlp", &yt_url).await?;
+                    Ok(())
+                }
+                None => anyhow::bail!(
+                    "ffmpeg descargado. yt-dlp no tiene binario oficial para Android: publica tu propio build y pon su URL en Ajustes > Paquetes del motor > URLs personalizadas."
+                ),
+            }
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let yt_url = db
+                .get_setting("binary.ytdlp_url")
+                .await?
+                .unwrap_or_else(|| DEFAULT_YTDLP_URL.to_string());
+            crate::engine::process::download_binary(DEFAULT_YTDLP_NAME, &yt_url).await?;
+            // ffmpeg ships inside the release archives (Windows .zip, macOS
+            // .dmg/.zip, Linux .tar.gz); otherwise it comes from the system
+            // package manager.
+            if crate::engine::process::ffmpeg_bin().is_none() {
+                anyhow::bail!(
+                    "yt-dlp descargado. Falta ffmpeg: viene integrado en el archivo del release; si no, en macOS `brew install ffmpeg`, en Linux usa tu gestor de paquetes y en Windows `winget install Gyan.FFmpeg`."
+                );
+            }
+            Ok(())
+        }
     }
 }
 

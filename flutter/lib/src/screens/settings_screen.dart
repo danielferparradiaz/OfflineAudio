@@ -101,6 +101,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _downloadBinaries() async {
     setState(() => _downloading = true);
     try {
+      // Persiste las URLs personalizadas antes de descargar: el motor las
+      // prefiere sobre las fuentes integradas.
+      final ytUrl = _ytUrlController.text.trim();
+      final ffUrl = _ffmpegUrlController.text.trim();
+      if (ytUrl.isNotEmpty) {
+        await setSetting(key: 'binary.ytdlp_url', value: ytUrl);
+      }
+      if (ffUrl.isNotEmpty) {
+        await setSetting(key: 'binary.ffmpeg_url', value: ffUrl);
+      }
       await downloadMobileBinaries();
       final status = await binariesStatus();
       if (mounted) setState(() => _bins = status);
@@ -383,36 +393,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
         },
       );
     } else {
-      segmented = SegmentedButton<ThemeMode>(
-        segments: const [
-          ButtonSegment(
-            value: ThemeMode.light,
-            icon: HugeIcon(icon: HugeIcons.strokeRoundedSun01, size: 24),
-            label: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4),
-              child: Text('Claro'),
-            ),
-          ),
-          ButtonSegment(
-            value: ThemeMode.dark,
-            icon: HugeIcon(icon: HugeIcons.strokeRoundedMoon02, size: 24),
-            label: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4),
-              child: Text('Oscuro'),
-            ),
-          ),
-          ButtonSegment(
-            value: ThemeMode.system,
-            icon: HugeIcon(icon: HugeIcons.strokeRoundedMagicWand01, size: 24),
-            label: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4),
-              child: Text('Sistema'),
-            ),
-          ),
-        ],
-        selected: {settings.themeMode},
-        onSelectionChanged: (s) => settings.setThemeMode(s.first),
-        showSelectedIcon: false,
+      // En anchos estrechos (cajón de Windows/Android, ventanas pequeñas)
+      // los 3 segmentos con icono+texto desbordan: se muestran solo iconos.
+      segmented = LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 400;
+          ButtonSegment<ThemeMode> seg(
+            ThemeMode value,
+            List<List<dynamic>> icon,
+            String label,
+          ) {
+            return ButtonSegment(
+              value: value,
+              icon: HugeIcon(icon: icon, size: 24),
+              label: compact
+                  ? null
+                  : Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Text(label),
+                    ),
+              tooltip: compact ? label : null,
+            );
+          }
+
+          return SegmentedButton<ThemeMode>(
+            segments: [
+              seg(ThemeMode.light, HugeIcons.strokeRoundedSun01, 'Claro'),
+              seg(ThemeMode.dark, HugeIcons.strokeRoundedMoon02, 'Oscuro'),
+              seg(
+                ThemeMode.system,
+                HugeIcons.strokeRoundedMagicWand01,
+                'Sistema',
+              ),
+            ],
+            selected: {settings.themeMode},
+            onSelectionChanged: (s) => settings.setThemeMode(s.first),
+            showSelectedIcon: false,
+          );
+        },
       );
     }
     return Padding(
@@ -429,14 +447,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ? 'Revisando…'
         : 'yt-dlp ${yt ? '✓' : '✗'} · ffmpeg ${ff ? '✓' : '✗'}';
     final installed = yt && ff;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ListTile(
-          leading: const HugeIcon(icon: HugeIcons.strokeRoundedWrench01),
-          title: const Text('Binarios yt-dlp / ffmpeg'),
-          subtitle: Text(status),
-          trailing: _downloading
+    // Columna en vez de ListTile con trailing: a cualquier ancho el botón
+    // nunca comprime el texto ni se estira la fila.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const HugeIcon(icon: HugeIcons.strokeRoundedWrench01),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Binarios yt-dlp / ffmpeg'),
+                    Text(
+                      status,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface
+                            .withValues(alpha: 0.65),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _downloading
               ? const SizedBox(
                   width: 20,
                   height: 20,
@@ -450,8 +491,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   label: Text(installed ? 'Instalados' : 'Descargar'),
                 ),
-        ),
-      ],
+          const SizedBox(height: 8),
+          TextField(
+            controller: _ytUrlController,
+            decoration: const InputDecoration(
+              labelText: 'URL personalizada de yt-dlp (opcional)',
+              isDense: true,
+            ),
+            style: const TextStyle(fontSize: 13),
+          ),
+          const SizedBox(height: 4),
+          TextField(
+            controller: _ffmpegUrlController,
+            decoration: const InputDecoration(
+              labelText: 'URL personalizada de ffmpeg (opcional)',
+              isDense: true,
+            ),
+            style: const TextStyle(fontSize: 13),
+          ),
+        ],
+      ),
     );
   }
 
@@ -472,7 +531,7 @@ class _SectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Align(
         alignment: Alignment.centerLeft,
         child: Text(

@@ -17,6 +17,8 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
   AppDirs? _dirs;
   BinariesStatus? _bins;
   bool _downloading = false;
+  final _ytUrlController = TextEditingController();
+  final _ffmpegUrlController = TextEditingController();
 
   @override
   void initState() {
@@ -24,16 +26,27 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _ytUrlController.dispose();
+    _ffmpegUrlController.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     try {
       final ytdlp = await getYtdlpStatus();
       final dirs = await appDirs();
       final bins = await binariesStatus();
+      final ytUrl = await getSetting(key: 'binary.ytdlp_url');
+      final ffUrl = await getSetting(key: 'binary.ffmpeg_url');
       if (mounted) {
         setState(() {
           _ytdlp = ytdlp;
           _dirs = dirs;
           _bins = bins;
+          if (ytUrl != null) _ytUrlController.text = ytUrl;
+          if (ffUrl != null) _ffmpegUrlController.text = ffUrl;
         });
       }
     } catch (_) {}
@@ -63,6 +76,14 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
   Future<void> _downloadBinaries() async {
     setState(() => _downloading = true);
     try {
+      final ytUrl = _ytUrlController.text.trim();
+      final ffUrl = _ffmpegUrlController.text.trim();
+      if (ytUrl.isNotEmpty) {
+        await setSetting(key: 'binary.ytdlp_url', value: ytUrl);
+      }
+      if (ffUrl.isNotEmpty) {
+        await setSetting(key: 'binary.ffmpeg_url', value: ffUrl);
+      }
       await downloadMobileBinaries();
       final status = await binariesStatus();
       if (mounted) setState(() => _bins = status);
@@ -155,6 +176,8 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
   }
 
   Widget _buildAppearance(SettingsController settings) {
+    // El cajón es estrecho (~300dp): segmentos solo con icono para que no
+    // desborden ni se estiren las filas.
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: SegmentedButton<ThemeMode>(
@@ -162,26 +185,17 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
           ButtonSegment(
             value: ThemeMode.light,
             icon: HugeIcon(icon: HugeIcons.strokeRoundedSun01, size: 24),
-            label: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4),
-              child: Text('Claro'),
-            ),
+            tooltip: 'Claro',
           ),
           ButtonSegment(
             value: ThemeMode.dark,
             icon: HugeIcon(icon: HugeIcons.strokeRoundedMoon02, size: 24),
-            label: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4),
-              child: Text('Oscuro'),
-            ),
+            tooltip: 'Oscuro',
           ),
           ButtonSegment(
             value: ThemeMode.system,
             icon: HugeIcon(icon: HugeIcons.strokeRoundedMagicWand01, size: 24),
-            label: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4),
-              child: Text('Sistema'),
-            ),
+            tooltip: 'Sistema',
           ),
         ],
         selected: {settings.themeMode},
@@ -199,14 +213,37 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
         ? 'Revisando…'
         : 'yt-dlp ${yt ? '✓' : '✗'} · ffmpeg ${ff ? '✓' : '✗'}';
     final installed = yt && ff;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ListTile(
-          leading: const HugeIcon(icon: HugeIcons.strokeRoundedWrench01),
-          title: const Text('Binarios yt-dlp / ffmpeg'),
-          subtitle: Text(status),
-          trailing: _downloading
+    // Columna en vez de ListTile con trailing: en el cajón estrecho el
+    // botón nunca comprime el texto ni se estira la fila.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const HugeIcon(icon: HugeIcons.strokeRoundedWrench01),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Binarios yt-dlp / ffmpeg'),
+                    Text(
+                      status,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface
+                            .withValues(alpha: 0.65),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _downloading
               ? const SizedBox(
                   width: 20,
                   height: 20,
@@ -220,8 +257,26 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
                   ),
                   label: Text(installed ? 'Instalados' : 'Descargar'),
                 ),
-        ),
-      ],
+          const SizedBox(height: 8),
+          TextField(
+            controller: _ytUrlController,
+            decoration: const InputDecoration(
+              labelText: 'URL personalizada de yt-dlp (opcional)',
+              isDense: true,
+            ),
+            style: const TextStyle(fontSize: 13),
+          ),
+          const SizedBox(height: 4),
+          TextField(
+            controller: _ffmpegUrlController,
+            decoration: const InputDecoration(
+              labelText: 'URL personalizada de ffmpeg (opcional)',
+              isDense: true,
+            ),
+            style: const TextStyle(fontSize: 13),
+          ),
+        ],
+      ),
     );
   }
 }

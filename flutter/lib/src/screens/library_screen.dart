@@ -244,9 +244,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // En Apple no hay avatar sobre el buscador (los ajustes están
-              // en el sidebar). En Material se conserva el avatar que abre el
-              // cajón de ajustes.
+              // En Apple no hay botón sobre el buscador (los ajustes están
+              // en el sidebar). En Material se conserva el acceso a ajustes.
               if (!isApplePlatform) _buildHeader(context),
               _buildSearchField(context),
             ],
@@ -262,19 +261,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
       child: Align(
         alignment: Alignment.centerRight,
         child: Builder(
-          builder: (context) => InkWell(
-            onTap: () => Scaffold.of(context).openEndDrawer(),
-            borderRadius: BorderRadius.circular(24),
-            child: Padding(
-              padding: const EdgeInsets.all(4),
-              child: CircleAvatar(
-                radius: 16,
-                child: HugeIcon(
-                  icon: HugeIcons.strokeRoundedUser,
-                  size: 20,
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
-              ),
+          builder: (context) => IconButton(
+            onPressed: () => Scaffold.of(context).openEndDrawer(),
+            tooltip: 'Ajustes',
+            icon: HugeIcon(
+              icon: HugeIcons.strokeRoundedSettings01,
+              size: 22,
+              color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
         ),

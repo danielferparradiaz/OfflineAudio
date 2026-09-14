@@ -1,4 +1,4 @@
-package com.offlineaudio.offline_audio_app
+package com.offlineaudio.app
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -37,6 +37,22 @@ jobs:
           fi
       - run: flutter pub get
       - run: flutter build macos --release
+      # Binarios del motor integrados junto al ejecutable (el motor los
+      # encuentra sin PATH; yt-dlp se auto-actualiza vía Ajustes). La .app es
+      # universal: un ffmpeg por arquitectura.
+      - name: Bundle engine binaries (yt-dlp + ffmpeg)
+        shell: bash
+        run: |
+          APP=build/macos/Build/Products/Release/OfflineAudio.app/Contents/MacOS
+          curl -sSL -o "$APP/yt-dlp" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
+          chmod +x "$APP/yt-dlp"
+          curl -sSL -o /tmp/ff-arm64.zip "https://github.com/Tyrrrz/FFmpegBin/releases/latest/download/ffmpeg-osx-arm64.zip"
+          curl -sSL -o /tmp/ff-x64.zip "https://github.com/Tyrrrz/FFmpegBin/releases/latest/download/ffmpeg-osx-x64.zip"
+          unzip -p /tmp/ff-arm64.zip ffmpeg > "$APP/ffmpeg-aarch64"
+          unzip -p /tmp/ff-x64.zip ffmpeg > "$APP/ffmpeg-x86_64"
+          chmod +x "$APP/ffmpeg-aarch64" "$APP/ffmpeg-x86_64"
+          "$APP/yt-dlp" --version
+          "$APP/ffmpeg-aarch64" -version 2>&1 | head -n 1
       - name: Bundle
         run: |
           mkdir -p ../dist
@@ -101,6 +117,19 @@ jobs:
           Get-ChildItem -Path $out | Select-Object -ExpandProperty Name
       - run: flutter pub get
       - run: flutter build windows --release
+      # Binarios del motor integrados: yt-dlp oficial + ffmpeg (gyan
+      # essentials). El motor los encuentra junto al .exe sin tocar el PATH;
+      # yt-dlp además se auto-actualiza (`yt-dlp -U`) vía Ajustes.
+      - name: Bundle engine binaries (yt-dlp + ffmpeg)
+        shell: pwsh
+        run: |
+          $out = "build\windows\x64\runner\Release"
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "$out\yt-dlp.exe"
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "$env:RUNNER_TEMP\ffmpeg.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\ffmpeg.zip" -DestinationPath "$env:RUNNER_TEMP\ff" -Force
+          Copy-Item "$env:RUNNER_TEMP\ff\ffmpeg-*-essentials_build\bin\ffmpeg.exe" "$out\ffmpeg.exe"
+          & "$out\yt-dlp.exe" --version
+          & "$out\ffmpeg.exe" -version 2>&1 | Select-Object -First 1
       - name: Bundle
         shell: pwsh
         run: |
@@ -130,6 +159,19 @@ jobs:
           sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libmpv-dev mpv
       - run: flutter pub get
       - run: flutter build linux --release
+      # Binarios del motor integrados junto al ejecutable (el motor los
+      # encuentra sin PATH; yt-dlp se auto-actualiza vía Ajustes).
+      - name: Bundle engine binaries (yt-dlp + ffmpeg)
+        run: |
+          BUNDLE=build/linux/x64/release/bundle
+          curl -sSL -o "$BUNDLE/yt-dlp" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+          chmod +x "$BUNDLE/yt-dlp"
+          curl -sSL -o /tmp/ff-static.tar.xz "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+          tar -xJf /tmp/ff-static.tar.xz -C /tmp --wildcards '*/ffmpeg'
+          cp /tmp/ffmpeg-*-static/ffmpeg "$BUNDLE/ffmpeg"
+          chmod +x "$BUNDLE/ffmpeg"
+          "$BUNDLE/yt-dlp" --version
+          "$BUNDLE/ffmpeg" -version 2>&1 | head -n 1
       - name: Bundle
         run: |
           mkdir -p ../dist
