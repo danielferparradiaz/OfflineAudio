@@ -11,7 +11,21 @@ use anyhow::{Context, Result};
 
 pub const APP_NAME: &str = "OfflineAudio";
 
+/// Override fijado desde Dart al arrancar (móvil). `dirs::config_dir()` no
+/// existe en Android/iOS (devuelve `None` y caíamos a `./OfflineAudio`, de
+/// solo lectura) así que la app pasa su directorio privado y el motor lo usa
+/// como base de todo: db, caché, tmp y binarios.
+static APP_HOME_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Fija el directorio base de datos. Llamar una vez antes de `AppEngine::init`.
+pub fn set_app_home(path: PathBuf) {
+    let _ = APP_HOME_OVERRIDE.set(path);
+}
+
 pub fn app_home() -> PathBuf {
+    if let Some(home) = APP_HOME_OVERRIDE.get() {
+        return home.clone();
+    }
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(APP_NAME)

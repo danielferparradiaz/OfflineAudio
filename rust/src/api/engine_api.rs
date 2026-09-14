@@ -23,8 +23,10 @@ fn engine_ref() -> &'static AppEngine {
 }
 
 /// Initialize the engine (directories, SQLite, settings) and start background
-/// workers. Called once from `RustLib.init()`.
-#[flutter_rust_bridge::frb(init)]
+/// workers. Called explicitly from Dart after `RustLib.init()` (and after
+/// `set_app_dir()` on mobile) — NOT auto-run, so the app dir override lands
+/// before the engine touches the filesystem.
+#[flutter_rust_bridge::frb]
 pub async fn init_app() -> Result<()> {
     flutter_rust_bridge::setup_default_user_utils();
     if ENGINE.get().is_some() {
@@ -250,8 +252,19 @@ pub async fn check_ytdlp() -> Result<()> {
     Ok(())
 }
 
-// ---- engine binaries (mobile) -------------------------------------------
+// ---- app data dir -------------------------------------------------------
 
+/// Fija el directorio base de datos del motor (db, caché, tmp, binarios).
+/// En Android/iOS Dart pasa el directorio privado de la app antes de
+/// cualquier otra llamada; en escritorio no se usa (vale `dirs::config_dir`).
+#[flutter_rust_bridge::frb]
+pub async fn set_app_dir(path: String) -> Result<()> {
+    let home = std::path::PathBuf::from(&path);
+    crate::engine::paths::set_app_home(home);
+    Ok(())
+}
+
+// ---- engine binaries (mobile) -------------------------------------------
 #[derive(Serialize, Deserialize)]
 pub struct BinariesStatus {
     pub yt_dlp_present: bool,

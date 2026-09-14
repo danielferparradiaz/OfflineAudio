@@ -11,6 +11,12 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `engine_ref`
 
+/// Initialize the engine (directories, SQLite, settings) and start background
+/// workers. Called explicitly from Dart after `RustLib.init()` (and after
+/// `set_app_dir()` on mobile) — NOT auto-run, so the app dir override lands
+/// before the engine touches the filesystem.
+Future<void> initApp() => RustLib.instance.api.crateApiEngineApiInitApp();
+
 /// Query metadata for a URL without downloading anything.
 Future<ProbeInfo> probeUrl({required String url}) =>
     RustLib.instance.api.crateApiEngineApiProbeUrl(url: url);
@@ -121,13 +127,25 @@ Future<YtdlpInfo> getYtdlpStatus() =>
 /// `YtdlpStatus` event.
 Future<void> checkYtdlp() => RustLib.instance.api.crateApiEngineApiCheckYtdlp();
 
-/// Presence of the runtime binaries used by the engine. On mobile the app
-/// downloads them into `bin_dir`; on desktop they live in PATH.
+/// Fija el directorio base de datos del motor (db, caché, tmp, binarios).
+/// En Android/iOS Dart pasa el directorio privado de la app antes de
+/// cualquier otra llamada; en escritorio no se usa (vale `dirs::config_dir`).
+Future<void> setAppDir({required String path}) =>
+    RustLib.instance.api.crateApiEngineApiSetAppDir(path: path);
+
+/// Presence of the runtime binaries used by the engine. Found in the app
+/// `bin_dir` (runtime download), next to the executable (bundled, e.g. the
+/// Windows .zip) or in PATH.
 Future<BinariesStatus> binariesStatus() =>
     RustLib.instance.api.crateApiEngineApiBinariesStatus();
 
-/// Download yt-dlp + ffmpeg into the app binary dir. Only implemented for
-/// Android for now (iOS still needs a reliable static binary source — TODO).
+/// Download yt-dlp + ffmpeg into the app binary dir. On Android ffmpeg comes
+/// from per-ABI builds (Tyrrrz/FFmpegBin) and yt-dlp from the configured URL
+/// (no official Android build exists: glibc/musl vs bionic). On desktop
+/// yt-dlp comes from its official release and ffmpeg must already be present
+/// (bundled in the release archives or installed via the system package
+/// manager). iOS cannot execute external binaries (sandbox) — TODO
+/// library-based instead.
 Future<void> downloadMobileBinaries() =>
     RustLib.instance.api.crateApiEngineApiDownloadMobileBinaries();
 

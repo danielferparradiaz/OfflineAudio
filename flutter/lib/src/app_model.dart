@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/widgets.dart';
 import 'package:media_kit/media_kit.dart' as mk;
+import 'package:path_provider/path_provider.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/rust/engine/events.dart';
 import 'package:offline_audio_app/src/rust/engine/models.dart';
@@ -142,6 +144,13 @@ class AppModel extends ChangeNotifier {
   /// Initialize Rust: engine + event stream + media_kit.
   Future<void> init() async {
     await RustLib.init();
+    // En móvil `dirs::config_dir()` no existe: se pasa el directorio privado
+    // de la app antes de arrancar el motor.
+    if (Platform.isAndroid || Platform.isIOS) {
+      final support = await getApplicationSupportDirectory();
+      await setAppDir(path: support.path);
+    }
+    await initApp();
     mk.MediaKit.ensureInitialized();
 
     // Subscribe to the engine event stream.

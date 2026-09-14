@@ -167,7 +167,7 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
             ),
             title: const Text('Acerca de'),
             subtitle: const Text(
-              'OfflineAudio 1.0.1 · uso personal.\nUso exclusivo de contenidos que tienes derecho a descargar.',
+              'OfflineAudio 1.0.2 · uso personal.\nUso exclusivo de contenidos que tienes derecho a descargar.',
             ),
           ),
         ],

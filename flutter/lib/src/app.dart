@@ -109,6 +109,7 @@ class RootBootstrap extends StatefulWidget {
 
 class _RootBootstrapState extends State<RootBootstrap> {
   bool _ready = false;
+  String? _error;
 
   @override
   void initState() {
@@ -117,7 +118,13 @@ class _RootBootstrapState extends State<RootBootstrap> {
   }
 
   Future<void> _boot() async {
-    await AppModelProvider.of(context).init();
+    try {
+      await AppModelProvider.of(context).init();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
+      return;
+    }
     if (!mounted) return;
     await _ensureMobileBinaries(context);
     if (!mounted) return;
@@ -173,7 +180,39 @@ class _RootBootstrapState extends State<RootBootstrap> {
 
   @override
   Widget build(BuildContext context) {
+    if (_error != null) return _BootError(message: _error!);
     return _ready ? const HomeShell() : const SplashScreen();
+  }
+}
+
+class _BootError extends StatelessWidget {
+  const _BootError({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, size: 48),
+              const SizedBox(height: 16),
+              const Text(
+                'No se pudo iniciar el motor',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(message, textAlign: TextAlign.center),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
