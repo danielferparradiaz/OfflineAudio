@@ -340,6 +340,21 @@ where
     tail.as_text()
 }
 
+/// Oculta la ventana de consola de los hijos en Windows: sin
+/// `CREATE_NO_WINDOW` cada invocación a yt-dlp/ffmpeg abre (y cierra) una
+/// terminal. Los pipes de stdin/stdout/stderr siguen funcionando igual.
+pub fn hide_console(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = cmd;
+    }
+}
+
 /// Size a `Command` with default safety (no shell), default env inheritance.
 pub fn child_log(
     program: &std::path::Path,
@@ -355,6 +370,7 @@ pub fn child_log(
         .stderr(stderr)
         .kill_on_drop(false);
     apply_lib_path(&mut cmd);
+    hide_console(&mut cmd);
     cmd
 }
 

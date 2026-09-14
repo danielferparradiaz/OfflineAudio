@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 
 use crate::engine::models::ContentKind;
-use crate::engine::process::{apply_lib_path, ffmpeg_bin};
+use crate::engine::process::{apply_lib_path, ffmpeg_bin, hide_console};
 
 #[derive(Default)]
 pub struct AudioMeta {
@@ -71,6 +71,7 @@ fn stream_command(
     let mut cmd = tokio::process::Command::new(bin);
     cmd.args(args).kill_on_drop(false);
     apply_lib_path(&mut cmd);
+    hide_console(&mut cmd);
     cmd
 }
 
@@ -109,6 +110,7 @@ pub fn convert_from_file(
     let mut cmd = tokio::process::Command::new(bin);
     cmd.args(args).kill_on_drop(false);
     apply_lib_path(&mut cmd);
+    hide_console(&mut cmd);
     Ok(cmd)
 }
 
@@ -130,7 +132,8 @@ pub async fn validate_media(output: &Path) -> Result<u64> {
         Err(_) => bail!("fichero de salida no creado"),
     }
     if let Ok(ffprobe) = which::which("ffprobe") {
-        let probe = tokio::process::Command::new(ffprobe)
+        let mut probe = tokio::process::Command::new(ffprobe);
+        probe
             .arg("-v")
             .arg("error")
             .arg("-show_entries")
@@ -138,9 +141,9 @@ pub async fn validate_media(output: &Path) -> Result<u64> {
             .arg("-of")
             .arg("csv=p=0")
             .arg(output)
-            .kill_on_drop(false)
-            .output()
-            .await;
+            .kill_on_drop(false);
+        hide_console(&mut probe);
+        let probe = probe.output().await;
         if let Ok(out) = probe {
             if !out.status.success() {
                 std::fs::remove_file(output).ok();
