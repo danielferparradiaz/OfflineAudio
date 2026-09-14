@@ -44,10 +44,10 @@ jobs:
         shell: bash
         run: |
           APP=build/macos/Build/Products/Release/OfflineAudio.app/Contents/MacOS
-          curl -sSL -o "$APP/yt-dlp" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
+          curl -sSL --fail --retry 3 --retry-all-errors -o "$APP/yt-dlp" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
           chmod +x "$APP/yt-dlp"
-          curl -sSL -o /tmp/ff-arm64.zip "https://github.com/Tyrrrz/FFmpegBin/releases/latest/download/ffmpeg-osx-arm64.zip"
-          curl -sSL -o /tmp/ff-x64.zip "https://github.com/Tyrrrz/FFmpegBin/releases/latest/download/ffmpeg-osx-x64.zip"
+          curl -sSL --fail --retry 3 --retry-all-errors -o /tmp/ff-arm64.zip "https://github.com/Tyrrrz/FFmpegBin/releases/latest/download/ffmpeg-osx-arm64.zip"
+          curl -sSL --fail --retry 3 --retry-all-errors -o /tmp/ff-x64.zip "https://github.com/Tyrrrz/FFmpegBin/releases/latest/download/ffmpeg-osx-x64.zip"
           unzip -p /tmp/ff-arm64.zip ffmpeg > "$APP/ffmpeg-aarch64"
           unzip -p /tmp/ff-x64.zip ffmpeg > "$APP/ffmpeg-x86_64"
           chmod +x "$APP/ffmpeg-aarch64" "$APP/ffmpeg-x86_64"
@@ -124,8 +124,8 @@ jobs:
         shell: pwsh
         run: |
           $out = "build\windows\x64\runner\Release"
-          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "$out\yt-dlp.exe"
-          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "$env:RUNNER_TEMP\ffmpeg.zip"
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "$out\yt-dlp.exe" -MaximumRetryCount 3 -RetryIntervalSec 10
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "$env:RUNNER_TEMP\ffmpeg.zip" -MaximumRetryCount 3 -RetryIntervalSec 10
           Expand-Archive -Path "$env:RUNNER_TEMP\ffmpeg.zip" -DestinationPath "$env:RUNNER_TEMP\ff" -Force
           Copy-Item "$env:RUNNER_TEMP\ff\ffmpeg-*-essentials_build\bin\ffmpeg.exe" "$out\ffmpeg.exe"
           & "$out\yt-dlp.exe" --version
@@ -164,11 +164,21 @@ jobs:
       - name: Bundle engine binaries (yt-dlp + ffmpeg)
         run: |
           BUNDLE=build/linux/x64/release/bundle
-          curl -sSL -o "$BUNDLE/yt-dlp" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+          curl -sSL --fail --retry 3 --retry-all-errors -o "$BUNDLE/yt-dlp" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
           chmod +x "$BUNDLE/yt-dlp"
-          curl -sSL -o /tmp/ff-static.tar.xz "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
-          tar -xJf /tmp/ff-static.tar.xz -C /tmp --wildcards '*/ffmpeg'
-          cp /tmp/ffmpeg-*-static/ffmpeg "$BUNDLE/ffmpeg"
+          # johnvansickle (ligero) con fallback a BtbN (GitHub) si la
+          # descarga llega corrupta o el host falla.
+          if curl -sSL --fail --retry 3 --retry-all-errors -o /tmp/ff-static.tar.xz "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz" \
+            && tar -xJf /tmp/ff-static.tar.xz -C /tmp --wildcards '*/ffmpeg' \
+            && cp /tmp/ffmpeg-*-static/ffmpeg "$BUNDLE/ffmpeg"; then
+            echo "ffmpeg desde johnvansickle"
+          else
+            echo "johnvansickle falló; usando fallback BtbN"
+            rm -rf /tmp/ffmpeg-*-static
+            curl -sSL --fail --retry 3 --retry-all-errors -o /tmp/ff-static.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-linux64-gpl.tar.xz"
+            tar -xJf /tmp/ff-static.tar.xz -C /tmp 'ffmpeg-master-latest-linux64-gpl/bin/ffmpeg'
+            cp /tmp/ffmpeg-master-latest-linux64-gpl/bin/ffmpeg "$BUNDLE/ffmpeg"
+          fi
           chmod +x "$BUNDLE/ffmpeg"
           "$BUNDLE/yt-dlp" --version
           "$BUNDLE/ffmpeg" -version 2>&1 | head -n 1
