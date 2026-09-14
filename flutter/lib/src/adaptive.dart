@@ -545,6 +545,23 @@ class AppSearchField extends StatelessWidget {
   }
 }
 
+/// Explica la utilidad de Sync: mantener biblioteca, listas de reproducción
+/// y vídeos sincronizados entre dispositivos con la cuenta de OfflineAudio.
+Future<void> showSyncInfoDialog(BuildContext context) {
+  return showAppDialog<void>(
+    context,
+    title: const Text('Sync'),
+    content: const Text(
+      'Sync mantendrá tu biblioteca, listas de reproducción y vídeos '
+      'sincronizados entre todos tus dispositivos con tu cuenta de '
+      'OfflineAudio Cloud.\n\nAsí podrás seguir una reproducción en otro '
+      'dispositivo sin volver a descargar nada.\n\nDisponible '
+      'próximamente.',
+    ),
+    actions: [AppDialogAction(label: 'Entendido', isDefault: true)],
+  );
+}
+
 /// Página completa adaptativa: CupertinoPageScaffold + CupertinoNavigationBar
 /// en Apple, Scaffold + AppBar Material en el resto.
 class AppPage extends StatelessWidget {

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:hugeicons/hugeicons.dart';
+import 'package:offline_audio_app/src/app_update.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/settings.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class SettingsDrawerContent extends StatefulWidget {
   const SettingsDrawerContent({super.key});
@@ -17,8 +19,11 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
   AppDirs? _dirs;
   BinariesStatus? _bins;
   bool _downloading = false;
-  final _ytUrlController = TextEditingController();
-  final _ffmpegUrlController = TextEditingController();
+  String? _binsMessage;
+
+  String _appVersion = '…';
+  String? _updateMessage;
+  bool _checkingUpdate = false;
 
   @override
   void initState() {
@@ -26,27 +31,18 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
     _load();
   }
 
-  @override
-  void dispose() {
-    _ytUrlController.dispose();
-    _ffmpegUrlController.dispose();
-    super.dispose();
-  }
-
   Future<void> _load() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) setState(() => _appVersion = info.version);
     try {
       final ytdlp = await getYtdlpStatus();
       final dirs = await appDirs();
       final bins = await binariesStatus();
-      final ytUrl = await getSetting(key: 'binary.ytdlp_url');
-      final ffUrl = await getSetting(key: 'binary.ffmpeg_url');
       if (mounted) {
         setState(() {
           _ytdlp = ytdlp;
           _dirs = dirs;
           _bins = bins;
-          if (ytUrl != null) _ytUrlController.text = ytUrl;
-          if (ffUrl != null) _ffmpegUrlController.text = ffUrl;
         });
       }
     } catch (_) {}
@@ -61,7 +57,9 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
       if (mounted) {
         setState(() {
           _ytdlp = ytdlp;
-          _ytdlpMessage = ytdlp.outdated
+          _ytdlpMessage = !ytdlp.present
+              ? 'yt-dlp no está instalado. Descárgalo en Paquetes del motor.'
+              : ytdlp.outdated
               ? 'Versión desactualizada. Revisando…'
               : 'yt-dlp está actualizado';
         });
@@ -74,22 +72,41 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
   }
 
   Future<void> _downloadBinaries() async {
-    setState(() => _downloading = true);
+    setState(() {
+      _downloading = true;
+      _binsMessage = null;
+    });
     try {
-      final ytUrl = _ytUrlController.text.trim();
-      final ffUrl = _ffmpegUrlController.text.trim();
-      if (ytUrl.isNotEmpty) {
-        await setSetting(key: 'binary.ytdlp_url', value: ytUrl);
-      }
-      if (ffUrl.isNotEmpty) {
-        await setSetting(key: 'binary.ffmpeg_url', value: ffUrl);
-      }
       await downloadMobileBinaries();
       final status = await binariesStatus();
-      if (mounted) setState(() => _bins = status);
+      if (mounted) {
+        setState(() {
+          _bins = status;
+          _binsMessage = 'Paquetes instalados';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _binsMessage = 'No se pudo descargar: ${e.toString()}';
+        });
+      }
     } finally {
       if (mounted) setState(() => _downloading = false);
     }
+  }
+
+  Future<void> _checkAppVersion() async {
+    setState(() {
+      _checkingUpdate = true;
+      _updateMessage = null;
+    });
+    final message = await checkAppUpdate(_appVersion);
+    if (!mounted) return;
+    setState(() {
+      _updateMessage = message;
+      _checkingUpdate = false;
+    });
   }
 
   String _ytdlpSubtitle() {
@@ -117,9 +134,33 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
           const Divider(),
           _SectionTitle('Aplicación'),
           ListTile(
-            leading: const HugeIcon(
-              icon: HugeIcons.strokeRoundedDownloadSquare01,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            title: const Text('Versión'),
+            subtitle: Text('OfflineAudio v$_appVersion instalada'),
+            trailing: _checkingUpdate
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : IconButton(
+                    padding: const EdgeInsets.all(4),
+                    constraints: const BoxConstraints(),
+                    iconSize: 22,
+                    icon: const HugeIcon(icon: HugeIcons.strokeRoundedRefresh),
+                    onPressed: _checkAppVersion,
+                  ),
+          ),
+          if (_updateMessage != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                _updateMessage!,
+                style: TextStyle(color: Theme.of(context).colorScheme.primary),
+              ),
             ),
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
             title: const Text('Comprobar yt-dlp'),
             subtitle: Text(_ytdlpSubtitle()),
             trailing: _checking
@@ -129,6 +170,9 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : IconButton(
+                    padding: const EdgeInsets.all(4),
+                    constraints: const BoxConstraints(),
+                    iconSize: 22,
                     icon: const HugeIcon(icon: HugeIcons.strokeRoundedRefresh),
                     onPressed: _checkYtdlp,
                   ),
@@ -167,7 +211,7 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
             ),
             title: const Text('Acerca de'),
             subtitle: const Text(
-              'OfflineAudio 1.0.2 · uso personal.\nUso exclusivo de contenidos que tienes derecho a descargar.',
+              'OfflineAudio 1.0.3 · uso personal.\nUso exclusivo de contenidos que tienes derecho a descargar.',
             ),
           ),
         ],
@@ -177,31 +221,10 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
 
   Widget _buildAppearance(SettingsController settings) {
     // El cajón es estrecho (~300dp): segmentos solo con icono para que no
-    // desborden ni se estiren las filas.
+    // desborden ni se estiren las filas, centrados como en el resto.
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: SegmentedButton<ThemeMode>(
-        segments: const [
-          ButtonSegment(
-            value: ThemeMode.light,
-            icon: HugeIcon(icon: HugeIcons.strokeRoundedSun01, size: 24),
-            tooltip: 'Claro',
-          ),
-          ButtonSegment(
-            value: ThemeMode.dark,
-            icon: HugeIcon(icon: HugeIcons.strokeRoundedMoon02, size: 24),
-            tooltip: 'Oscuro',
-          ),
-          ButtonSegment(
-            value: ThemeMode.system,
-            icon: HugeIcon(icon: HugeIcons.strokeRoundedMagicWand01, size: 24),
-            tooltip: 'Sistema',
-          ),
-        ],
-        selected: {settings.themeMode},
-        onSelectionChanged: (s) => settings.setThemeMode(s.first),
-        showSelectedIcon: false,
-      ),
+      child: Center(child: _AppearanceSegments(settings: settings)),
     );
   }
 
@@ -244,39 +267,72 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
           ),
           const SizedBox(height: 8),
           _downloading
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : FilledButton.tonalIcon(
-                  onPressed: installed ? null : _downloadBinaries,
-                  icon: const HugeIcon(
-                    icon: HugeIcons.strokeRoundedDownload01,
-                    size: 18,
+              ? const Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   ),
-                  label: Text(installed ? 'Instalados' : 'Descargar'),
+                )
+              : Center(
+                  child: FilledButton.tonalIcon(
+                    onPressed: installed ? null : _downloadBinaries,
+                    icon: const HugeIcon(
+                      icon: HugeIcons.strokeRoundedDownload01,
+                      size: 18,
+                    ),
+                    label: Text(installed ? 'Instalados' : 'Descargar'),
+                  ),
                 ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _ytUrlController,
-            decoration: const InputDecoration(
-              labelText: 'URL personalizada de yt-dlp (opcional)',
-              isDense: true,
+          if (_binsMessage != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Center(
+                child: Text(
+                  _binsMessage!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.onSurface
+                        .withValues(alpha: 0.65),
+                  ),
+                ),
+              ),
             ),
-            style: const TextStyle(fontSize: 13),
-          ),
-          const SizedBox(height: 4),
-          TextField(
-            controller: _ffmpegUrlController,
-            decoration: const InputDecoration(
-              labelText: 'URL personalizada de ffmpeg (opcional)',
-              isDense: true,
-            ),
-            style: const TextStyle(fontSize: 13),
-          ),
         ],
       ),
+    );
+  }
+}
+
+class _AppearanceSegments extends StatelessWidget {
+  const _AppearanceSegments({required this.settings});
+
+  final SettingsController settings;
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<ThemeMode>(
+      segments: const [
+        ButtonSegment(
+          value: ThemeMode.light,
+          icon: HugeIcon(icon: HugeIcons.strokeRoundedSun01, size: 24),
+          tooltip: 'Claro',
+        ),
+        ButtonSegment(
+          value: ThemeMode.dark,
+          icon: HugeIcon(icon: HugeIcons.strokeRoundedMoon02, size: 24),
+          tooltip: 'Oscuro',
+        ),
+        ButtonSegment(
+          value: ThemeMode.system,
+          icon: HugeIcon(icon: HugeIcons.strokeRoundedMagicWand01, size: 24),
+          tooltip: 'Sistema',
+        ),
+      ],
+      selected: {settings.themeMode},
+      onSelectionChanged: (s) => settings.setThemeMode(s.first),
+      showSelectedIcon: false,
     );
   }
 }

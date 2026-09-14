@@ -229,10 +229,13 @@ pub async fn get_ytdlp_status() -> Result<YtdlpInfo> {
         .get_setting(crate::engine::SETTING_YTDLP_CHECKED_AT)
         .await?;
     let present = crate::engine::process::ytdlp_bin().is_some();
-    let outdated = version
-        .as_deref()
-        .map(crate::engine::ytdlp::is_outdated)
-        .unwrap_or(true);
+    // Sin binario no hay nada que comparar: `outdated` solo aplica cuando
+    // hay versión instalada (si no, la UI diría "desactualizado" en vacío).
+    let outdated = present
+        && version
+            .as_deref()
+            .map(crate::engine::ytdlp::is_outdated)
+            .unwrap_or(false);
     Ok(YtdlpInfo {
         present,
         version,

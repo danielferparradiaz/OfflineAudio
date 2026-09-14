@@ -484,35 +484,32 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (!isApplePlatform) _buildHeader(context),
-              _buildSearchField(context),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeader(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
-      child: Align(
-        alignment: Alignment.centerRight,
-        child: Builder(
-          builder: (context) => InkWell(
-            onTap: () => Scaffold.of(context).openEndDrawer(),
-            borderRadius: BorderRadius.circular(24),
-            child: Padding(
-              padding: const EdgeInsets.all(4),
-              child: CircleAvatar(
-                radius: 16,
-                child: HugeIcon(
-                  icon: HugeIcons.strokeRoundedUser,
-                  size: 20,
-                  color: Theme.of(context).colorScheme.onSurface,
+              // En Apple solo el buscador. En Material, buscador y acceso a
+              // ajustes en la misma fila.
+              if (isApplePlatform)
+                _buildSearchField(context)
+              else
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 4, 10),
+                  child: Row(
+                    children: [
+                      Expanded(child: _searchField(context)),
+                      Builder(
+                        builder: (context) => IconButton(
+                          onPressed: () =>
+                              Scaffold.of(context).openEndDrawer(),
+                          tooltip: 'Ajustes',
+                          icon: HugeIcon(
+                            icon: HugeIcons.strokeRoundedSettings01,
+                            size: 22,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ),
+            ],
           ),
         ),
       ),
@@ -524,26 +521,30 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       // En Apple no hay cabecera sobre el buscador, así que necesita más
       // margen superior para no quedar pegado al borde del panel.
       padding: EdgeInsets.fromLTRB(16, isApplePlatform ? 12 : 4, 16, 10),
-      child: AppSearchField(
-        controller: _searchController,
-        focusNode: _searchFocusNode,
-        onSearch: _searchNow,
-        onChanged: (value) {
-          setState(() {
-            _currentQuery = value;
-            if (value.isNotEmpty) _showingRecent = true;
-          });
-          // La X del buscador está vaciando el campo: si estábamos viendo
-          // resultados, cerramos la búsqueda y volvemos a las descargas.
-          if (value.isEmpty && _activeQuery != null) _clearSearch();
-        },
-        onFocusChanged: (focused) {
-          if (focused && _activeQuery == null) {
-            setState(() => _showingRecent = true);
-            _recentKey.currentState?.refresh();
-          }
-        },
-      ),
+      child: _searchField(context),
+    );
+  }
+
+  Widget _searchField(BuildContext context) {
+    return AppSearchField(
+      controller: _searchController,
+      focusNode: _searchFocusNode,
+      onSearch: _searchNow,
+      onChanged: (value) {
+        setState(() {
+          _currentQuery = value;
+          if (value.isNotEmpty) _showingRecent = true;
+        });
+        // La X del buscador está vaciando el campo: si estábamos viendo
+        // resultados, cerramos la búsqueda y volvemos a las descargas.
+        if (value.isEmpty && _activeQuery != null) _clearSearch();
+      },
+      onFocusChanged: (focused) {
+        if (focused && _activeQuery == null) {
+          setState(() => _showingRecent = true);
+          _recentKey.currentState?.refresh();
+        }
+      },
     );
   }
 

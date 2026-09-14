@@ -244,31 +244,32 @@ class _LibraryScreenState extends State<LibraryScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // En Apple no hay botón sobre el buscador (los ajustes están
-              // en el sidebar). En Material se conserva el acceso a ajustes.
-              if (!isApplePlatform) _buildHeader(context),
-              _buildSearchField(context),
+              // En Apple solo el buscador (los ajustes están en el sidebar).
+              // En Material, buscador y acceso a ajustes en la misma fila.
+              if (isApplePlatform)
+                _buildSearchField(context)
+              else
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 4, 10),
+                  child: Row(
+                    children: [
+                      Expanded(child: _searchField(context)),
+                      Builder(
+                        builder: (context) => IconButton(
+                          onPressed: () =>
+                              Scaffold.of(context).openEndDrawer(),
+                          tooltip: 'Ajustes',
+                          icon: HugeIcon(
+                            icon: HugeIcons.strokeRoundedSettings01,
+                            size: 22,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeader(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
-      child: Align(
-        alignment: Alignment.centerRight,
-        child: Builder(
-          builder: (context) => IconButton(
-            onPressed: () => Scaffold.of(context).openEndDrawer(),
-            tooltip: 'Ajustes',
-            icon: HugeIcon(
-              icon: HugeIcons.strokeRoundedSettings01,
-              size: 22,
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
           ),
         ),
       ),
@@ -278,16 +279,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget _buildSearchField(BuildContext context) {
     return Padding(
       padding: EdgeInsets.fromLTRB(16, isApplePlatform ? 12 : 4, 16, 10),
-      child: AppSearchField(
-        controller: _searchController,
-        focusNode: _searchFocusNode,
-        onSearch: _searchNow,
-        onChanged: (value) {
-          // La X del buscador está vaciando el campo: si estábamos viendo
-          // resultados, volvemos a la biblioteca completa.
-          if (value.isEmpty && _activeQuery != null) _serveLibrary();
-        },
-      ),
+      child: _searchField(context),
+    );
+  }
+
+  Widget _searchField(BuildContext context) {
+    return AppSearchField(
+      controller: _searchController,
+      focusNode: _searchFocusNode,
+      onSearch: _searchNow,
+      onChanged: (value) {
+        // La X del buscador está vaciando el campo: si estábamos viendo
+        // resultados, volvemos a la biblioteca completa.
+        if (value.isEmpty && _activeQuery != null) _serveLibrary();
+      },
     );
   }
 

@@ -1,10 +1,8 @@
-import 'dart:convert';
-import 'dart:io' show HttpClient;
-
 import 'package:flutter/cupertino.dart' show CupertinoSegmentedControl;
 import 'package:flutter/material.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:offline_audio_app/src/adaptive.dart';
+import 'package:offline_audio_app/src/app_update.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/settings.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -23,8 +21,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   AppDirs? _dirs;
   BinariesStatus? _bins;
   bool _downloading = false;
-  final _ytUrlController = TextEditingController();
-  final _ffmpegUrlController = TextEditingController();
+  String? _binsMessage;
 
   /// Versión de la app instalada (pubspec `version:`) y resultado del
   /// chequeo contra el último release publicado en GitHub.
@@ -32,21 +29,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _updateMessage;
   bool _checkingUpdate = false;
 
-  static const _releasesApi =
-      'https://api.github.com/repos/danielferparradiaz/OfflineAudio/'
-      'releases/latest';
-
   @override
   void initState() {
     super.initState();
     _load();
-  }
-
-  @override
-  void dispose() {
-    _ytUrlController.dispose();
-    _ffmpegUrlController.dispose();
-    super.dispose();
   }
 
   Future<void> _load() async {
@@ -56,15 +42,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final ytdlp = await getYtdlpStatus();
       final dirs = await appDirs();
       final bins = await binariesStatus();
-      final ytUrl = await getSetting(key: 'binary.ytdlp_url');
-      final ffUrl = await getSetting(key: 'binary.ffmpeg_url');
       if (mounted) {
         setState(() {
           _ytdlp = ytdlp;
           _dirs = dirs;
           _bins = bins;
-          if (ytUrl != null) _ytUrlController.text = ytUrl;
-          if (ffUrl != null) _ffmpegUrlController.text = ffUrl;
         });
       }
     } catch (e) {
@@ -86,7 +68,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) {
         setState(() {
           _ytdlp = ytdlp;
-          _ytdlpMessage = ytdlp.outdated
+          _ytdlpMessage = !ytdlp.present
+              ? 'yt-dlp no está instalado. Descárgalo en Paquetes del motor.'
+              : ytdlp.outdated
               ? 'Versión desactualizada. Revisando…'
               : 'yt-dlp está actualizado';
         });
@@ -99,95 +83,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _downloadBinaries() async {
-    setState(() => _downloading = true);
+    setState(() {
+      _downloading = true;
+      _binsMessage = null;
+    });
     try {
-      // Persiste las URLs personalizadas antes de descargar: el motor las
-      // prefiere sobre las fuentes integradas.
-      final ytUrl = _ytUrlController.text.trim();
-      final ffUrl = _ffmpegUrlController.text.trim();
-      if (ytUrl.isNotEmpty) {
-        await setSetting(key: 'binary.ytdlp_url', value: ytUrl);
-      }
-      if (ffUrl.isNotEmpty) {
-        await setSetting(key: 'binary.ffmpeg_url', value: ffUrl);
-      }
       await downloadMobileBinaries();
       final status = await binariesStatus();
-      if (mounted) setState(() => _bins = status);
-      if (mounted) showAppSnackBar(context, message: 'Paquetes instalados');
+      if (mounted) {
+        setState(() {
+          _bins = status;
+          _binsMessage = 'Paquetes instalados';
+        });
+      }
     } catch (e) {
       if (mounted) {
-        showAppSnackBar(context, message: 'No se pudo descargar: $e');
+        setState(() {
+          _binsMessage = 'No se pudo descargar: ${e.toString()}';
+        });
       }
     } finally {
       if (mounted) setState(() => _downloading = false);
     }
   }
 
-  /// Comprueba si hay una release más nueva en GitHub y la compara con la
-  /// versión instalada (semver simple). La app no se auto-actualiza: en iOS/
-  /// Android lo gestionan las stores y en escritorio se enlaza la descarga.
+  /// Comprueba si hay una release más nueva en GitHub (ver [checkAppUpdate]).
   Future<void> _checkAppVersion() async {
     setState(() {
       _checkingUpdate = true;
       _updateMessage = null;
     });
-    try {
-      final req = await HttpClient().getUrl(Uri.parse(_releasesApi));
-      req.headers.set('Accept', 'application/vnd.github+json');
-      final res = await req.close();
-      final body = await res.transform(utf8.decoder).join();
-      if (res.statusCode == 404) {
-        if (mounted) {
-          setState(
-            () => _updateMessage =
-                'Sin releases publicadas; llevas la última build',
-          );
-        }
-        return;
-      }
-      if (res.statusCode != 200) {
-        if (mounted) {
-          setState(
-            () => _updateMessage =
-                'GitHub respondió ${res.statusCode}; inténtalo más tarde',
-          );
-        }
-        return;
-      }
-      final tag = (jsonDecode(body) as Map<String, dynamic>)['tag_name']
-          ?.toString()
-          .replaceFirst(RegExp(r'^[vV]'), '');
-      if (tag == null || tag.isEmpty) return;
-      if (!mounted) return;
-      if (_isNewer(tag, _appVersion)) {
-        setState(() => _updateMessage = 'Nueva versión disponible: v$tag');
-      } else {
-        setState(() => _updateMessage = 'OfflineAudio está actualizado');
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() => _updateMessage = 'Sin conexión; no se pudo comprobar');
-      }
-    } finally {
-      if (mounted) setState(() => _checkingUpdate = false);
-    }
-  }
-
-  /// Compara semver "x.y.z": true si [remote] es más nueva que [local].
-  static bool _isNewer(String remote, String local) {
-    List<int> parts(String v) => v
-        .split('.')
-        .map((p) => int.tryParse(p.replaceAll(RegExp(r'[^0-9].*$'), '')) ?? 0)
-        .toList();
-    final r = parts(remote);
-    final l = parts(local);
-    for (var i = 0; i < 3; i++) {
-      final rv = i < r.length ? r[i] : 0;
-      final lv = i < l.length ? l[i] : 0;
-      if (rv != lv) return rv > lv;
-    }
-    return false;
+    final message = await checkAppUpdate(_appVersion);
+    if (!mounted) return;
+    setState(() {
+      _updateMessage = message;
+      _checkingUpdate = false;
+    });
   }
 
   @override
@@ -335,19 +266,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   /// Explica la utilidad de Sync: mantener biblioteca, listas de reproducción
   /// y vídeos sincronizados entre dispositivos con la cuenta de OfflineAudio.
-  Future<void> _showSyncInfo(BuildContext context) async {
-    await showAppDialog<void>(
-      context,
-      title: const Text('Sync'),
-      content: const Text(
-        'Sync mantendrá tu biblioteca, listas de reproducción y vídeos '
-        'sincronizados entre todos tus dispositivos con tu cuenta de '
-        'OfflineAudio Cloud.\n\nAsí podrás seguir una reproducción en otro '
-        'dispositivo sin volver a descargar nada.\n\nDisponible '
-        'próximamente.',
-      ),
-      actions: [AppDialogAction(label: 'Entendido', isDefault: true)],
-    );
+  Future<void> _showSyncInfo(BuildContext context) {
+    return showSyncInfoDialog(context);
   }
 
   Widget _buildFooter(BuildContext context) {
@@ -356,7 +276,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
-        'OfflineAudio 1.0.2 · uso personal.\n'
+        'OfflineAudio 1.0.3 · uso personal.\n'
         'Uso exclusivo de contenidos que tienes derecho a descargar.',
         textAlign: TextAlign.center,
         style: TextStyle(fontSize: 12, color: subtle),
@@ -478,37 +398,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 8),
           _downloading
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : FilledButton.tonalIcon(
-                  onPressed: installed ? null : _downloadBinaries,
-                  icon: const HugeIcon(
-                    icon: HugeIcons.strokeRoundedDownload01,
-                    size: 18,
+              ? const Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   ),
-                  label: Text(installed ? 'Instalados' : 'Descargar'),
+                )
+              : Center(
+                  child: FilledButton.tonalIcon(
+                    onPressed: installed ? null : _downloadBinaries,
+                    icon: const HugeIcon(
+                      icon: HugeIcons.strokeRoundedDownload01,
+                      size: 18,
+                    ),
+                    label: Text(installed ? 'Instalados' : 'Descargar'),
+                  ),
                 ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _ytUrlController,
-            decoration: const InputDecoration(
-              labelText: 'URL personalizada de yt-dlp (opcional)',
-              isDense: true,
+          if (_binsMessage != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Center(
+                child: Text(
+                  _binsMessage!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.onSurface
+                        .withValues(alpha: 0.65),
+                  ),
+                ),
+              ),
             ),
-            style: const TextStyle(fontSize: 13),
-          ),
-          const SizedBox(height: 4),
-          TextField(
-            controller: _ffmpegUrlController,
-            decoration: const InputDecoration(
-              labelText: 'URL personalizada de ffmpeg (opcional)',
-              isDense: true,
-            ),
-            style: const TextStyle(fontSize: 13),
-          ),
         ],
       ),
     );

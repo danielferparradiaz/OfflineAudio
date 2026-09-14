@@ -526,21 +526,17 @@ class _HomeShellState extends State<HomeShell> {
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(
-                  vertical: 32,
+                  vertical: 24,
                   horizontal: 24,
                 ),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    CircleAvatar(
-                      radius: 28,
-                      child: HugeIcon(
-                        icon: HugeIcons.strokeRoundedSettings01,
-                        size: 28,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
+                    HugeIcon(
+                      icon: HugeIcons.strokeRoundedSettings01,
+                      size: 40,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     const Text(
                       'Invitado',
                       style: TextStyle(
@@ -548,11 +544,40 @@ class _HomeShellState extends State<HomeShell> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const Text(
+                    Text(
                       'Cuenta sin iniciar',
-                      style: TextStyle(fontSize: 12, color: Colors.white54),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurface
+                            .withValues(alpha: 0.55),
+                      ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 8),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(20),
+                      onTap: () => showSyncInfoDialog(context),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            HugeIcon(
+                              icon: HugeIcons.strokeRoundedCloud,
+                              size: 18,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 6),
+                            const Text(
+                              'Sync',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
