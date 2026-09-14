@@ -356,7 +356,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
-        'OfflineAudio 1.0 · uso personal.\n'
+        'OfflineAudio 1.0.1 · uso personal.\n'
         'Uso exclusivo de contenidos que tienes derecho a descargar.',
         textAlign: TextAlign.center,
         style: TextStyle(fontSize: 12, color: subtle),
