@@ -15,11 +15,17 @@ de este repo al crear un tag `v*`.
 
 | Dispositivo | Archivo | Cómo instalar |
 | ----------- | ------- | ------------- |
-| **macOS** (Apple Silicon / Intel) | `OfflineAudio-macos.dmg` (o `.zip`) | Abrir el DMG y arrastrar `OfflineAudio.app` a Aplicaciones |
+| **macOS** (Apple Silicon / Intel) | `OfflineAudio-macos.dmg` (o `.zip`) | Abrir el DMG y arrastrar `OfflineAudio.app` a Aplicaciones. Primer arranque: clic derecho → **Abrir** (la app aún no está notariada) |
 | **Windows** (10/11) | `OfflineAudio-windows.zip` | Descomprimir y ejecutar `OfflineAudio.exe` |
 | **Linux** (x64) | `OfflineAudio-linux.tar.gz` | Descomprimir la carpeta y ejecutar el binario `offline_audio` |
 | **iPhone / iPad** | `OfflineAudio-ios-altstore.ipa` | Instalar con **AltStore** o **Sideloadly** (firma el instalador tu cuenta de Apple). La versión oficial llegará **próximamente a la App Store** |
 | **Android** | `OfflineAudio-android-arm64-v8a.apk` (y variantes `armeabi-v7a`, `x86_64`) + `.aab` | Permitir «orígenes desconocidos» e instalar el APK de tu arquitectura (arm64 en la mayoría de móviles) |
+
+> **macOS y Gatekeeper:** si al abrir sale «está dañado» o «no se puede
+> verificar», abre una Terminal y ejecuta
+> `xattr -cr /Applications/OfflineAudio.app`, y vuelve a abrir. Pasa porque
+> la app se distribuye sin notariar (sin cuenta de pago de Apple); el
+> sello del bundle sí es válido desde la v1.1.1.
 
 > **Binarios del motor (`yt-dlp` + `ffmpeg`):** el usuario no tiene que
 > descargar ni instalar nada: la app los trae integrados donde el sistema

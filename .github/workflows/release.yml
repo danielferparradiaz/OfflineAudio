@@ -40,6 +40,10 @@ jobs:
       # Binarios del motor integrados junto al ejecutable (el motor los
       # encuentra sin PATH; yt-dlp se auto-actualiza vía Ajustes). La .app es
       # universal: un ffmpeg por arquitectura.
+      # OJO: `flutter build` firma ad-hoc el bundle ANTES de inyectar los
+      # binarios; hay que re-firmar DESPUÉS o el sello queda roto y Gatekeeper
+      # muestra "está dañado" sin vía de escape. Con sello ad-hoc válido el
+      # primer arranque pide clic-derecho → Abrir (ver README).
       - name: Bundle engine binaries (yt-dlp + ffmpeg)
         shell: bash
         run: |
@@ -53,6 +57,8 @@ jobs:
           chmod +x "$APP/ffmpeg-aarch64" "$APP/ffmpeg-x86_64"
           "$APP/yt-dlp" --version
           "$APP/ffmpeg-aarch64" -version 2>&1 | head -n 1
+          codesign --force --deep --sign - build/macos/Build/Products/Release/OfflineAudio.app
+          codesign --verify --deep --strict build/macos/Build/Products/Release/OfflineAudio.app
       - name: Bundle
         run: |
           mkdir -p ../dist
