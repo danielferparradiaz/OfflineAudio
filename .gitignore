@@ -1,4 +1,5 @@
 .DS_Store
 *.log
 .idea/
-.vscode/
+.vscode//poker_chip_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg
+/flutter/android/build/
