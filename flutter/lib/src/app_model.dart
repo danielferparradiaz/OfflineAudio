@@ -4,6 +4,8 @@ import 'dart:io' show Platform;
 import 'package:flutter/widgets.dart';
 import 'package:media_kit/media_kit.dart' as mk;
 import 'package:path_provider/path_provider.dart';
+import 'package:offline_audio_app/src/playback/mixer.dart';
+import 'package:offline_audio_app/src/playback/smart_shuffle.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/rust/engine/events.dart';
 import 'package:offline_audio_app/src/rust/engine/models.dart';
@@ -45,6 +47,23 @@ class AppModel extends ChangeNotifier {
 
   mk.Player? _player;
   bool _playerSubscribed = false;
+
+  // Standby player: only alive with audio loaded DURING a crossfade
+  // (song B enters while song A still sounds). Outside transitions there is
+  // a single decoding player to save CPU/battery.
+  mk.Player? _standby;
+  bool _standbySubscribed = false;
+
+  // Mixer (DJ-style crossfade, always on): song B enters while song A
+  // still sounds, overlapping the last [kMixCrossfadeSeconds].
+  Timer? _mixRamp;
+  _MixTransition? _mixTransition;
+
+  /// Track id already counted as a full listen (expert shuffle stats).
+  String? _completedRecordedFor;
+
+  /// True while two players overlap (crossfade running).
+  bool get isCrossfading => _mixTransition != null;
 
   // Playback position tracking (P3).
   Duration _position = Duration.zero;
@@ -249,55 +268,233 @@ class AppModel extends ChangeNotifier {
   }
 
   void _ensurePlayer() {
-    _player ??= mk.Player(
-      configuration: const mk.PlayerConfiguration(
-        vo: 'libmpv',
-        protocolWhitelist: [
-          'udp',
-          'rtp',
-          'tcp',
-          'tls',
-          'data',
-          'file',
-          'http',
-          'https',
-          'crypto',
-        ],
-      ),
-    );
-    if (_playerSubscribed) return;
-    _playerSubscribed = true;
-    final p = _player!;
+    _player ??= mk.Player(configuration: _playerConfig());
+    if (!_playerSubscribed) {
+      _playerSubscribed = true;
+      _subscribePlayer(_player!);
+    }
+    _ensureStandby();
+  }
+
+  mk.PlayerConfiguration _playerConfig() => const mk.PlayerConfiguration(
+    vo: 'libmpv',
+    protocolWhitelist: [
+      'udp',
+      'rtp',
+      'tcp',
+      'tls',
+      'data',
+      'file',
+      'http',
+      'https',
+      'crypto',
+    ],
+  );
+
+  /// Standby player for crossfades. Created eagerly (cheap until a media is
+  /// opened) so the overlap can start without init latency; it only decodes
+  /// while a transition runs.
+  void _ensureStandby() {
+    _standby ??= mk.Player(configuration: _playerConfig());
+    if (!_standbySubscribed) {
+      _standbySubscribed = true;
+      _subscribePlayer(_standby!);
+    }
+  }
+
+  /// Attach stream listeners to a player. Every callback ignores events from
+  /// the non-active player, so swapping active/standby needs no re-subscribe.
+  void _subscribePlayer(mk.Player p) {
     p.stream.playing.listen((playing) {
+      if (!identical(p, _player)) return;
       _playing = playing;
       notifyListeners();
     });
     p.stream.position.listen((pos) {
-      _position = pos;
-      notifyListeners();
+      if (!identical(p, _player)) return;
+      _onActivePosition(pos);
     });
     p.stream.duration.listen((dur) {
+      if (!identical(p, _player)) return;
       _duration = dur;
       notifyListeners();
     });
     // When media_kit advances inside a Playlist, keep our queue in sync
     // so the UI title and play-count stay correct.
     p.stream.playlist.listen((pl) {
-      if (!_playingPlaylist || _queue.isEmpty) return;
-      final idx = pl.index;
-      if (idx < 0 || idx >= _queue.length) return;
-      final track = _queue[idx];
-      if (_currentTrack?.id != track.id) {
-        _currentTrack = track;
-        notifyListeners();
-        _recordPlay(track);
-      }
+      if (!identical(p, _player)) return;
+      _onPlaylistIndex(pl.index);
     });
+    p.stream.completed.listen((done) {
+      if (!identical(p, _player) || !done) return;
+      _onActiveCompleted();
+    });
+  }
+
+  void _onActivePosition(Duration pos) {
+    _position = pos;
+    notifyListeners();
+    _maybeRecordCompletion();
+    // Crossfade trigger: B starts entering during the last seconds of A.
+    if (_mixTransition != null || !_playingPlaylist || isPreview) {
+      return;
+    }
+    if (_duration <= Duration.zero) return;
+    final remaining = _duration - pos;
+    if (remaining <= Duration.zero) return;
+    final idx = _currentTrackIdx();
+    if (idx == null || idx + 1 >= _queue.length || _queueHasVideo) return;
+    final trigger = mixTriggerRemaining(hasNext: true, eligible: true);
+    if (trigger == null) return;
+    if (remaining <= Duration(milliseconds: (trigger * 1000).round())) {
+      _beginCrossfade(idx + 1);
+    }
+  }
+
+  void _onPlaylistIndex(int idx) {
+    // In manual crossfade mode the queue is driven track-by-track (single
+    // Media opens), so playlist-index events carry no advance.
+    if (_manualAdvance) return;
+    if (!_playingPlaylist || _queue.isEmpty) return;
+    if (idx < 0 || idx >= _queue.length) return;
+    final track = _queue[idx];
+    if (_currentTrack?.id != track.id) {
+      _currentTrack = track;
+      notifyListeners();
+      _recordPlay(track);
+    }
+  }
+
+  void _onActiveCompleted() {
+    // The outgoing track ended mid-transition: snap to the incoming one.
+    if (_mixTransition != null) {
+      _finishCrossfade();
+      return;
+    }
+    // Manual crossfade mode has no mk.Playlist auto-advance: step over.
+    if (_manualAdvance) {
+      final idx = _currentTrackIdx();
+      if (idx != null && idx + 1 < _queue.length) {
+        unawaited(_openQueueAt(idx + 1));
+      }
+    }
+  }
+
+  bool get _manualAdvance => isManualQueueEligible(
+    playingPlaylist: _playingPlaylist,
+    queueLength: _queue.length,
+    hasVideo: _queueHasVideo,
+    preview: isPreview,
+  );
+
+  bool get _queueHasVideo => _queue.any((t) => t.contentKind == 'video');
+
+  /// Open the queue item at [index], choosing single-Media (manual crossfade
+  /// mode) or mk.Playlist (auto-advance) transparently.
+  Future<void> _openQueueAt(int index) async {
+    if (index < 0 || index >= _queue.length) return;
+    _ensurePlayer();
+    _cancelTransition();
+    _clearPreview();
+    _currentTrack = _queue[index];
+    _position = Duration.zero;
+    await _player!.setVolume(100);
+    if (_manualAdvance) {
+      await _player!.open(mk.Media(_queue[index].filePath));
+    } else {
+      await _player!.open(
+        mk.Playlist(_queue.map((t) => mk.Media(t.filePath)).toList()),
+        play: false,
+      );
+      await _player!.jump(index);
+      await _player!.play();
+    }
+    notifyListeners();
+    _recordPlay(_queue[index]);
+  }
+
+  // ---- mixer transitions -------------------------------------------------
+
+  /// Start the overlap: song B enters on the standby player at volume 0
+  /// while song A keeps sounding, then both ramp with an equal-power curve.
+  Future<void> _beginCrossfade(int nextIndex) async {
+    if (_mixTransition != null) return;
+    if (nextIndex < 0 || nextIndex >= _queue.length) return;
+    _ensureStandby();
+    final incoming = _standby!;
+    final next = _queue[nextIndex];
+    try {
+      await incoming.setVolume(0);
+      await incoming.open(mk.Media(next.filePath), play: false);
+      await incoming.play();
+    } catch (_) {
+      // Standby failed: let A finish; [_onActiveCompleted] steps over.
+      return;
+    }
+    _mixTransition = _MixTransition(
+      next: next,
+      t: 0,
+      span: kMixCrossfadeSeconds,
+      incoming: incoming,
+      outgoing: _player!,
+    );
+    _mixRamp?.cancel();
+    _mixRamp = Timer.periodic(const Duration(milliseconds: 100), _mixTick);
+  }
+
+  void _mixTick(Timer _) {
+    final tr = _mixTransition;
+    if (tr == null) return;
+    // Freeze the ramp while paused so pause/resume feels seamless.
+    if (!isPlaying) return;
+    tr.t += 0.1 / tr.span;
+    if (tr.t >= 1) {
+      _finishCrossfade();
+      return;
+    }
+    final g = equalPowerGains(tr.t);
+    unawaited(tr.outgoing.setVolume(g.outGain * 100));
+    unawaited(tr.incoming.setVolume(g.inGain * 100));
+  }
+
+  /// Snap the overlap shut: B at full volume becomes the active player, A
+  /// stops and is recycled as the next standby.
+  void _finishCrossfade() {
+    final tr = _mixTransition;
+    if (tr == null) return;
+    _mixRamp?.cancel();
+    _mixRamp = null;
+    _mixTransition = null;
+    unawaited(tr.incoming.setVolume(100));
+    unawaited(tr.outgoing.stop());
+    final oldActive = _player!;
+    _player = _standby;
+    _standby = oldActive;
+    _currentTrack = tr.next;
+    _position = Duration.zero;
+    notifyListeners();
+    _recordPlay(tr.next);
+  }
+
+  /// Cancel any running overlap and restore full volume on the active
+  /// player. The standby is stopped so it decodes nothing.
+  void _cancelTransition() {
+    _mixRamp?.cancel();
+    _mixRamp = null;
+    _mixTransition = null;
+    final active = _player;
+    if (active != null) unawaited(active.setVolume(100));
+    final standby = _standby;
+    if (standby != null) {
+      unawaited(standby.stop());
+      unawaited(standby.setVolume(0));
+    }
   }
 
   /// Play a single track.
   Future<void> playTrack(Track track) async {
     _ensurePlayer();
+    _cancelTransition();
     _clearPreview();
     _currentTrack = track;
     _queue = [track];
@@ -309,41 +506,31 @@ class AppModel extends ChangeNotifier {
     _recordPlay(track);
   }
 
-  /// Play all tracks of a playlist in order (media_kit auto-advances).
+  /// Play all tracks of a playlist in expert-shuffle order (the neglected
+  /// classics first, @see [smartShuffleOrder]). The stored playlist order
+  /// is untouched; only this queue is ordered.
   Future<void> playPlaylist(String playlistId) async {
     final tracks = await playlistTracks(playlistId: playlistId);
     if (tracks.isEmpty) return;
     _ensurePlayer();
     _clearPreview();
-    _queue = tracks;
-    _currentTrack = tracks.first;
+    _queue = smartShuffleOrder(tracks);
     _playingPlaylist = true;
     _shuffleSession = false;
-    _position = Duration.zero;
-    await _player!.open(
-      mk.Playlist(tracks.map((t) => mk.Media(t.filePath)).toList()),
-    );
-    notifyListeners();
-    _recordPlay(tracks.first);
+    await _openQueueAt(0);
   }
 
-  /// Play the whole library as a randomly shuffled playlist (media_kit
-  /// auto-advances through the shuffled queue).
+  /// Play the whole library in expert-shuffle order (the poker-chip button):
+  /// neglected classics surface instead of a flat random.
   Future<void> shuffleLibrary() async {
     if (_library.isEmpty) return;
-    final tracks = List<Track>.of(_library)..shuffle();
+    final tracks = smartShuffleOrder(List<Track>.of(_library));
     _ensurePlayer();
     _clearPreview();
     _queue = tracks;
-    _currentTrack = tracks.first;
     _playingPlaylist = true;
     _shuffleSession = true;
-    _position = Duration.zero;
-    await _player!.open(
-      mk.Playlist(tracks.map((t) => mk.Media(t.filePath)).toList()),
-    );
-    notifyListeners();
-    _recordPlay(tracks.first);
+    await _openQueueAt(0);
   }
 
   /// Reproduce un avance remoto de un resultado de búsqueda: stream directo
@@ -368,6 +555,7 @@ class AppModel extends ChangeNotifier {
     _previewVideo = isVideo;
     _position = Duration.zero;
     _duration = Duration.zero;
+    _cancelTransition();
     await _player!.open(mk.Media(url));
     notifyListeners();
   }
@@ -377,9 +565,44 @@ class AppModel extends ChangeNotifier {
     recordPlay(id: track.id).then((_) {}, onError: (_) {});
   }
 
+  /// Fire once per track when the playhead passes [kCompletionThreshold]:
+  /// counts a full listen for the expert shuffle. Resets automatically on
+  /// track change (first tick of the new track clears the stale id).
+  void _maybeRecordCompletion() {
+    final track = _currentTrack;
+    if (track == null || isPreview) return;
+    if (_completedRecordedFor != track.id) {
+      _completedRecordedFor = null;
+    }
+    if (_completedRecordedFor != null) return;
+    if (_duration <= Duration.zero) return;
+    if (_position.inMilliseconds <
+        (_duration.inMilliseconds * kCompletionThreshold).round()) {
+      return;
+    }
+    _completedRecordedFor = track.id;
+    recordPlayCompleted(
+      id: track.id,
+      listenedSeconds: _position.inSeconds,
+    ).then((_) {}, onError: (_) {});
+  }
+
   Future<void> togglePause() async {
     final p = _player;
     if (p == null) return;
+    // During a crossfade both players move together so the ramp can freeze
+    // and resume seamlessly.
+    if (_mixTransition != null) {
+      if (isPlaying) {
+        await p.pause();
+        await _standby?.pause();
+      } else {
+        await p.play();
+        await _standby?.play();
+      }
+      notifyListeners();
+      return;
+    }
     if (p.state.playing) {
       await p.pause();
     } else {
@@ -389,13 +612,24 @@ class AppModel extends ChangeNotifier {
   }
 
   Future<void> seek(Duration position) async {
+    // A seek invalidates any pending fade/overlap: volumes back to full and
+    // the trigger is recomputed from the new playhead.
+    _cancelTransition();
     await _player?.seek(position);
     notifyListeners();
   }
 
   Future<void> skipNext() async {
+    if (_manualAdvance) {
+      final idx = _currentTrackIdx();
+      if (idx != null && idx + 1 < _queue.length) {
+        await _openQueueAt(idx + 1);
+      }
+      return;
+    }
     // In playlist mode media_kit advances the Playlist and our
     // stream.playlist listener updates _currentTrack.
+    _cancelTransition();
     await _player?.next();
     notifyListeners();
   }
@@ -406,6 +640,14 @@ class AppModel extends ChangeNotifier {
       await seek(Duration.zero);
       return;
     }
+    if (_manualAdvance) {
+      final idx = _currentTrackIdx();
+      if (idx != null && idx - 1 >= 0) {
+        await _openQueueAt(idx - 1);
+      }
+      return;
+    }
+    _cancelTransition();
     await _player?.previous();
     notifyListeners();
   }
@@ -421,7 +663,12 @@ class AppModel extends ChangeNotifier {
   /// Jump to the queue item at [index] and keep playing through the rest.
   Future<void> playAtIndex(int index) async {
     if (index < 0 || index >= _queue.length) return;
+    if (_manualAdvance) {
+      await _openQueueAt(index);
+      return;
+    }
     _ensurePlayer();
+    _cancelTransition();
     _previewId = null;
     _currentTrack = _queue[index];
     _position = Duration.zero;
@@ -461,6 +708,14 @@ class AppModel extends ChangeNotifier {
     _currentTrack = currentIndex != null
         ? _queue[currentIndex]
         : (_queue.isEmpty ? null : _queue.first);
+    // A reorder invalidates any pending overlap target: volumes back up.
+    _cancelTransition();
+    if (_manualAdvance) {
+      // No mk.Playlist to rebuild in manual mode: the active player keeps
+      // sounding and the queue order is already updated.
+      notifyListeners();
+      return;
+    }
     // Capturamos el estado de reproducción ANTES de reconstruir el playlist:
     // `open` resetea el índice y el playhead, y no debe reiniciar la canción.
     final wasPlaying = isPlaying;
@@ -506,9 +761,29 @@ class AppModel extends ChangeNotifier {
   @override
   void dispose() {
     _eventSub?.cancel();
+    _mixRamp?.cancel();
     _player?.dispose();
+    _standby?.dispose();
     super.dispose();
   }
+}
+
+/// A running crossfade: song [next] entering on [incoming] while [outgoing]
+/// leaves. [t] goes 0 → 1 over [span] seconds with an equal-power curve.
+class _MixTransition {
+  _MixTransition({
+    required this.next,
+    required this.t,
+    required this.span,
+    required this.incoming,
+    required this.outgoing,
+  });
+
+  final Track next;
+  double t;
+  final double span;
+  final mk.Player incoming;
+  final mk.Player outgoing;
 }
 
 /// Provides a shared [AppModel] to the whole widget tree and rebuilds

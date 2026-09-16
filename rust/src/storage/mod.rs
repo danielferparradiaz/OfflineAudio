@@ -163,6 +163,30 @@ impl AppDatabase {
         Ok(())
     }
 
+    /// Record a completed listen: the playhead reached the end of the track.
+    /// Bumps `completed_count`, accumulates `listened_seconds` into
+    /// `total_listen_seconds` and refreshes `last_played`. The expert
+    /// shuffle uses these to tell beloved classics apart from starts that
+    /// were skipped away.
+    pub async fn record_play_completed(
+        &self,
+        id: &str,
+        listened_seconds: i64,
+        timestamp: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE tracks SET completed_count = completed_count + 1, \
+             total_listen_seconds = total_listen_seconds + ?, last_played = ? \
+             WHERE id = ?",
+        )
+        .bind(listened_seconds.max(0))
+        .bind(timestamp)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     // ---- playlists -----------------------------------------------------
 
     pub async fn create_playlist(&self, name: &str) -> Result<Playlist> {
@@ -404,6 +428,8 @@ mod tests {
             download_date: date.to_string(),
             play_count: 0,
             last_played: None,
+            completed_count: 0,
+            total_listen_seconds: 0,
         }
     }
 
@@ -514,6 +540,34 @@ mod tests {
         let got = db.get_track(&t.id).await.unwrap().unwrap();
         assert_eq!(got.play_count, 2);
         assert_eq!(got.last_played.as_deref(), Some("2026-05-06T10:00:00Z"));
+    }
+
+    #[tokio::test]
+    async fn record_play_completed_accumulates() {
+        let (_dir, db) = test_db().await;
+        let t = track("v", "Song", "2026-01-01T00:00:00Z");
+        db.upsert_track(&t).await.unwrap();
+        db.record_play_completed(&t.id, 180, "2026-05-05T10:00:00Z")
+            .await
+            .unwrap();
+        db.record_play_completed(&t.id, 200, "2026-05-06T10:00:00Z")
+            .await
+            .unwrap();
+        // Negative listens clamp to zero but still count the completion.
+        db.record_play_completed(&t.id, -50, "2026-05-07T10:00:00Z")
+            .await
+            .unwrap();
+        let got = db.get_track(&t.id).await.unwrap().unwrap();
+        assert_eq!(got.completed_count, 3);
+        assert_eq!(got.total_listen_seconds, 380);
+        assert_eq!(got.last_played.as_deref(), Some("2026-05-07T10:00:00Z"));
+        // Stats survive a metadata refresh (upsert preserves counters).
+        db.upsert_track(&track("v", "Song (refreshed)", "2026-02-01T00:00:00Z"))
+            .await
+            .unwrap();
+        let got = db.find_track_by_source("youtube:v").await.unwrap().unwrap();
+        assert_eq!(got.completed_count, 3);
+        assert_eq!(got.total_listen_seconds, 380);
     }
 
     #[tokio::test]

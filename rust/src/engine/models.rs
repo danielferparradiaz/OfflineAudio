@@ -25,6 +25,11 @@ pub struct Track {
     pub download_date: String,
     pub play_count: i64,
     pub last_played: Option<String>,
+    /// Full listens (reached the end of the track). Drives the expert
+    /// shuffle together with `total_listen_seconds`.
+    pub completed_count: i64,
+    /// Seconds actually listened across all sessions.
+    pub total_listen_seconds: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

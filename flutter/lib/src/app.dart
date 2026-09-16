@@ -1,11 +1,8 @@
-import 'dart:io' show Platform;
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/app_model.dart';
-import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/screens/screens.dart';
 import 'package:offline_audio_app/src/settings.dart';
 import 'package:offline_audio_app/src/widgets/widgets.dart';
@@ -99,7 +96,8 @@ class _OfflineAudioAppState extends State<OfflineAudioApp> {
 }
 
 /// Shows the branded splash while the engine boots, then swaps to [HomeShell].
-/// On Android it also asks whether to download yt-dlp/ffmpeg when missing.
+/// Engine binaries (yt-dlp/ffmpeg) need no user action: they ship with the
+/// release or the engine provisions them silently in the background.
 class RootBootstrap extends StatefulWidget {
   const RootBootstrap({super.key});
 
@@ -126,56 +124,7 @@ class _RootBootstrapState extends State<RootBootstrap> {
       return;
     }
     if (!mounted) return;
-    await _ensureMobileBinaries(context);
-    if (!mounted) return;
     setState(() => _ready = true);
-  }
-
-  Future<void> _ensureMobileBinaries(BuildContext context) async {
-    if (!Platform.isAndroid) return;
-
-    BinariesStatus? status;
-    try {
-      status = await binariesStatus();
-    } catch (_) {
-      return;
-    }
-    if (!context.mounted) return;
-    if (status.ytDlpPresent && status.ffmpegPresent) return;
-
-    final go = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Paquetes necesarios'),
-        content: const Text(
-          'En Android el motor necesita yt-dlp y ffmpeg para descargar y '
-          'convertir audio.\n\n¿Descargarlos ahora?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Más tarde'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Descargar'),
-          ),
-        ],
-      ),
-    );
-    if (go != true || !context.mounted) return;
-
-    final contextForToast = context;
-    try {
-      await downloadMobileBinaries();
-      if (contextForToast.mounted) {
-        showAppSnackBar(contextForToast, message: 'Paquetes instalados');
-      }
-    } catch (e) {
-      if (contextForToast.mounted) {
-        showAppSnackBar(contextForToast, message: 'No se pudo descargar: $e');
-      }
-    }
   }
 
   @override

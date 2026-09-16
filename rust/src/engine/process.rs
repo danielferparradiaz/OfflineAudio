@@ -43,9 +43,40 @@ fn ffmpeg_candidate_names() -> Vec<String> {
         .collect()
 }
 
-/// Locate `yt-dlp`: app bin dir (runtime download) → next to the executable
-/// (bundled) → PATH.
+/// Android yt-dlp runtime root: `<bin_dir>/ytdlp`. Holds the `ytdlp` launcher
+/// plus the CPython prefix (`prefix/lib/...`). There is no official yt-dlp
+/// binary for Android (bionic), so the runtime is a self-contained bundle:
+/// python.org CPython-for-Android + the `yt-dlp` PyPI wheel, driven by a tiny
+/// C launcher that embeds libpython (see `flutter/tool/android/`).
+///
+/// Versiones pineadas en `flutter/tool/android/runtime_versions.env`:
+/// mantener estos consts sincronizados (el script de build falla si el zip
+/// no trae exactamente `YTDLP_RUNTIME_YTDLP_VERSION`).
+pub const YTDLP_RUNTIME_YTDLP_VERSION: &str = "2026.8.19";
+pub const YTDLP_RUNTIME_PYTHON_MM: &str = "3.14";
+pub fn ytdlp_runtime_dir() -> PathBuf {
+    paths::bin_dir().join("ytdlp")
+}
+
+/// The launcher executable inside the Android yt-dlp runtime.
+pub fn ytdlp_runtime_launcher() -> PathBuf {
+    ytdlp_runtime_dir().join("ytdlp")
+}
+
+/// `prefix/lib` inside the Android yt-dlp runtime: home of `libpython`,
+/// `libssl_python.so`, `libcrypto_python.so`, ... — needed in
+/// `LD_LIBRARY_PATH` so yt-dlp extension modules resolve their deps.
+pub fn ytdlp_runtime_prefix_lib() -> PathBuf {
+    ytdlp_runtime_dir().join("prefix").join("lib")
+}
+
+/// Locate `yt-dlp`: Android runtime launcher → app bin dir (runtime
+/// download) → next to the executable (bundled) → PATH.
 pub fn ytdlp_bin() -> Option<PathBuf> {
+    let runtime = ytdlp_runtime_launcher();
+    if runtime.is_file() {
+        return Some(runtime);
+    }
     let names = ytdlp_candidate_names();
     find_in(Some(paths::bin_dir()), &names)
         .or_else(|| find_in(exe_dir(), &names))
@@ -80,11 +111,18 @@ pub fn native_lib_dir() -> Option<PathBuf> {
 }
 
 /// Añade al hijo las rutas donde viven las dependencias nativas (Android:
-/// `libc++_shared.so` para el ffmpeg integrado). Sin efecto en el resto.
+/// `libc++_shared.so` para el ffmpeg integrado y `prefix/lib` del runtime de
+/// yt-dlp para libpython y sus módulos SSL/SQLite). Sin efecto en el resto.
 pub fn apply_lib_path(cmd: &mut Command) {
     #[cfg(target_os = "android")]
     {
-        let mut dirs = vec![paths::bin_dir().to_string_lossy().to_string()];
+        let mut dirs = vec![];
+        // El runtime de yt-dlp primero: sus `libssl_python.so` y compañía
+        // solo existen ahí.
+        if ytdlp_runtime_prefix_lib().is_dir() {
+            dirs.push(ytdlp_runtime_prefix_lib().to_string_lossy().to_string());
+        }
+        dirs.push(paths::bin_dir().to_string_lossy().to_string());
         if let Some(lib) = native_lib_dir() {
             dirs.push(lib.to_string_lossy().to_string());
         }
@@ -149,6 +187,229 @@ pub async fn download_zip_binary(name: &str, url: &str) -> Result<PathBuf> {
     Ok(dest)
 }
 
+/// Download a zipped engine binary donde el ejecutable viene anidado
+/// (p. ej. `ffmpeg-release-essentials.zip` de Gyan trae
+/// `ffmpeg-*-essentials_build/bin/ffmpeg.exe`). Busca la primera entrada
+/// cuyo nombre termine en `suffix` (p. ej. `bin/ffmpeg.exe` o `ffmpeg`),
+/// la extrae a `dest_name` en el bin dir y le da permiso de ejecución.
+/// Rechaza zip-slip igual que `extract_zip_all`.
+pub async fn download_zip_binary_suffix(
+    dest_name: &str,
+    url: &str,
+    suffix: &str,
+) -> Result<PathBuf> {
+    let dir = paths::bin_dir();
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("creando dir de binarios {}", dir.display()))?;
+
+    let bytes = reqwest::get(url).await?.error_for_status()?.bytes().await?;
+    if bytes.is_empty() {
+        bail!("descarga de {dest_name} vacía desde {url}");
+    }
+    let dest = dir.join(dest_name);
+    extract_zip_suffix(&bytes, suffix, &dest)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))?;
+    }
+    Ok(dest)
+}
+
+/// Extrae del zip en memoria la primera entrada que termine en `suffix`
+/// hacia `dest` (sin red; testeable offline). Usado para zips donde el
+/// binario viene anidado (Gyan/BtbN/johnvansickle).
+fn extract_zip_suffix(bytes: &[u8], suffix: &str, dest: &std::path::Path) -> Result<()> {
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).context("zip inválido")?;
+    let norm = suffix.replace('\\', "/");
+    let idx = (0..zip.len())
+        .find(|&i| {
+            zip.by_index(i)
+                .map(|e| {
+                    let n = e.name().replace('\\', "/");
+                    !e.is_dir()
+                        && (n == norm || n.ends_with(&format!("/{norm}")) || n.ends_with(&norm))
+                })
+                .unwrap_or(false)
+        })
+        .with_context(|| format!("el zip no contiene *{suffix}"))?;
+    let mut entry = zip.by_index(idx)?;
+    {
+        let mut file = std::fs::File::create(dest)?;
+        std::io::copy(&mut entry, &mut file)?;
+    }
+    Ok(())
+}
+
+/// Smoke genérico: `<bin> --version` (yt-dlp) o `-version` (ffmpeg) debe
+/// salir con código 0 en menos de 30s. Lo usa el botón Descargar para no dar
+/// por bueno un binario corrupto o de otra arquitectura.
+pub async fn smoke_binary(bin: &std::path::Path, args: &[&str]) -> Result<String> {
+    let mut cmd = child_log(bin, args, null(), pipe(), null());
+    let out = tokio::time::timeout(std::time::Duration::from_secs(30), cmd.output())
+        .await
+        .context("timeout en smoke --version")??;
+    if !out.status.success() {
+        bail!("{} no arranca ({:?} falló)", bin.display(), args);
+    }
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string())
+}
+/// Download the Android yt-dlp runtime zip (launcher + CPython prefix +
+/// yt-dlp wheel) and extract it into `<bin_dir>/ytdlp`. Instalación atómica:
+/// se extrae a `<bin_dir>/ytdlp.new-<pid>` + verificación y solo entonces se
+/// renombra, así un zip corrupto o una descarga a medias nunca deja el
+/// runtime anterior roto. Devuelve la ruta del launcher, que `ytdlp_bin`
+/// detecta automáticamente.
+pub async fn download_ytdlp_runtime(url: &str) -> Result<PathBuf> {
+    let dir = ytdlp_runtime_dir();
+    let staging = paths::bin_dir().join(format!("ytdlp.new-{}", std::process::id()));
+    if staging.exists() {
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+    std::fs::create_dir_all(&staging)
+        .with_context(|| format!("creando staging del runtime {}", staging.display()))?;
+
+    let install = async {
+        let bytes = reqwest::get(url).await?.error_for_status()?.bytes().await?;
+        if bytes.is_empty() {
+            bail!("descarga del runtime de yt-dlp vacía desde {url}");
+        }
+        extract_zip_all(&bytes, &staging)?;
+        verify_ytdlp_runtime(&staging)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(
+                staging.join("ytdlp"),
+                std::fs::Permissions::from_mode(0o755),
+            )?;
+        }
+        // Smoke real: el launcher debe responder `--version` (con el
+        // LD_LIBRARY_PATH del runtime). Si falla, no se toca lo instalado.
+        smoke_ytdlp_launcher(&staging.join("ytdlp")).await?;
+        anyhow::Result::<()>::Ok(())
+    }
+    .await;
+    if let Err(e) = install {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(e).with_context(|| format!("instalando runtime desde {url}"));
+    }
+    // Swap atómico: el dir anterior se mueve a .old y se borra tras renombrar.
+    let backup = paths::bin_dir().join("ytdlp.old");
+    let _ = std::fs::remove_dir_all(&backup);
+    if dir.exists() {
+        std::fs::rename(&dir, &backup)?;
+    }
+    if let Err(e) = std::fs::rename(&staging, &dir) {
+        // Rollback: intenta devolver el anterior a su sitio.
+        if backup.exists() {
+            let _ = std::fs::rename(&backup, &dir);
+        }
+        return Err(e).with_context(|| "activando runtime de yt-dlp")?;
+    }
+    let _ = std::fs::remove_dir_all(&backup);
+    Ok(ytdlp_runtime_launcher())
+}
+
+/// Comprueba que un dir (instalado o en staging) sea un runtime completo:
+/// launcher + libpython del minor esperado + `yt_dlp/__main__.py` + certifi.
+/// Barato (solo FS) y evita dar por buena una extracción parcial.
+pub fn verify_ytdlp_runtime(dir: &std::path::Path) -> Result<()> {
+    let launcher = dir.join("ytdlp");
+    if !launcher.is_file() {
+        bail!("el zip no contiene el launcher `ytdlp` en su raíz");
+    }
+    let lib_glob = format!("libpython{YTDLP_RUNTIME_PYTHON_MM}");
+    let prefix_lib = dir.join("prefix").join("lib");
+    let has_libpython = std::fs::read_dir(&prefix_lib)
+        .with_context(|| format!("sin prefix/lib en {}", dir.display()))?
+        .filter_map(|e| e.ok())
+        .any(|e| e.file_name().to_string_lossy().starts_with(&lib_glob));
+    if !has_libpython {
+        bail!("falta {lib_glob}.so en prefix/lib (CPython {YTDLP_RUNTIME_PYTHON_MM} esperado)");
+    }
+    let main = prefix_lib.join(format!(
+        "python{}/site-packages/yt_dlp/__main__.py",
+        YTDLP_RUNTIME_PYTHON_MM
+    ));
+    if !main.is_file() {
+        bail!("falta yt_dlp/__main__.py en {}", main.display());
+    }
+    // certifi trae su propio dir de paquete.
+    let certifi = prefix_lib.join(format!(
+        "python{}/site-packages/certifi",
+        YTDLP_RUNTIME_PYTHON_MM
+    ));
+    if !certifi.is_dir() {
+        bail!("falta certifi en el runtime");
+    }
+    Ok(())
+}
+
+/// Ejecuta `<launcher> --version` con el entorno que usará en producción
+/// (LD_LIBRARY_PATH a prefix/lib en Android / al lado del binario en el
+/// resto) y comprueba que la versión sea la pineada. Timeout corto para no
+/// colgar Ajustes si el runtime está roto.
+async fn smoke_ytdlp_launcher(launcher: &std::path::Path) -> Result<String> {
+    use tokio::process::Command as TokioCommand;
+    let prefix_lib = launcher
+        .parent()
+        .map(|p| p.join("prefix").join("lib"))
+        .unwrap_or_default();
+    let mut cmd = TokioCommand::new(launcher);
+    cmd.args(["--version", "--no-cache-dir"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(false);
+    #[cfg(target_os = "android")]
+    {
+        let mut dirs = vec![];
+        if prefix_lib.is_dir() {
+            dirs.push(prefix_lib.to_string_lossy().to_string());
+        }
+        dirs.push(paths::bin_dir().to_string_lossy().to_string());
+        if let Some(lib) = native_lib_dir() {
+            dirs.push(lib.to_string_lossy().to_string());
+        }
+        if let Ok(cur) = std::env::var("LD_LIBRARY_PATH") {
+            if !cur.is_empty() {
+                dirs.push(cur);
+            }
+        }
+        cmd.env("LD_LIBRARY_PATH", dirs.join(":"));
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = &prefix_lib;
+    }
+    hide_console_tokio(&mut cmd);
+    let out = tokio::time::timeout(std::time::Duration::from_secs(30), cmd.output())
+        .await
+        .context("timeout en --version del runtime")??;
+    if !out.status.success() {
+        bail!("el launcher no arranca (--version falló)");
+    }
+    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if v != YTDLP_RUNTIME_YTDLP_VERSION {
+        bail!("runtime trae yt-dlp {v}, esperado {YTDLP_RUNTIME_YTDLP_VERSION}");
+    }
+    Ok(v)
+}
+
+#[cfg(windows)]
+fn hide_console_tokio(cmd: &mut tokio::process::Command) {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x0800_0000);
+}
+#[cfg(not(windows))]
+fn hide_console_tokio(_cmd: &mut tokio::process::Command) {}
+
 /// Extrae el miembro `name` de un zip en memoria hacia `dest` (sin red).
 fn extract_zip_member(bytes: &[u8], name: &str, dest: &std::path::Path) -> Result<()> {
     let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).context("zip inválido")?;
@@ -157,6 +418,38 @@ fn extract_zip_member(bytes: &[u8], name: &str, dest: &std::path::Path) -> Resul
         .with_context(|| format!("el zip no contiene {name}"))?;
     {
         let mut file = std::fs::File::create(dest)?;
+        std::io::copy(&mut entry, &mut file)?;
+    }
+    Ok(())
+}
+
+/// Extrae TODO el contenido de un zip en memoria hacia `dest`, preservando
+/// la estructura de carpetas. Rechaza rutas absolutas o con `..` (zip-slip)
+/// para que un zip malicioso no escriba fuera del destino.
+fn extract_zip_all(bytes: &[u8], dest: &std::path::Path) -> Result<()> {
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).context("zip inválido")?;
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i)?;
+        let rel = std::path::Path::new(entry.name());
+        if rel.is_absolute()
+            || rel.components().any(|c| {
+                matches!(
+                    c,
+                    std::path::Component::ParentDir | std::path::Component::Prefix(_)
+                )
+            })
+        {
+            bail!("entrada insegura en el zip: {}", entry.name());
+        }
+        let out_path = dest.join(rel);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&out_path)?;
+            continue;
+        }
+        if let Some(parent) = out_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut file = std::fs::File::create(&out_path)?;
         std::io::copy(&mut entry, &mut file)?;
     }
     Ok(())
@@ -241,20 +534,27 @@ pub async fn ensure_yt_dlp() -> Result<PathBuf> {
     }
 
     // En Android no hay builds oficiales de yt-dlp (glibc/musl vs bionic):
-    // solo vale lo descargado desde Ajustes > Paquetes (URL propia).
+    // el motor descarga solo su runtime integrado (launcher + CPython +
+    // wheel) la primera vez que hace falta.
     #[cfg(target_os = "android")]
     {
-        bail!("yt-dlp no está instalado. Descárgalo desde Ajustes > Paquetes del motor.");
+        bail!(
+            "Motor de descargas no disponible todavía. \
+             Se está preparando solo; inténtalo de nuevo en un momento."
+        );
     }
 
     #[cfg(windows)]
     {
-        bail!("yt-dlp no está instalado y no se pudo descargar automáticamente. Instálalo con: pipx install yt-dlp o descárgalo desde https://github.com/yt-dlp/yt-dlp/releases");
+        bail!(
+            "Motor de descargas no disponible todavía. \
+             Se está preparando solo; inténtalo de nuevo en un momento."
+        );
     }
 }
 
-/// Locate or install `ffmpeg`. On desktop it must come from the system; on
-/// mobile a runtime-downloaded binary is picked up from the app bin dir.
+/// Locate or install `ffmpeg`. Missing binaries are provisioned silently by
+/// the engine (bundled in the release or auto-downloaded); this only locates.
 pub async fn ensure_ffmpeg() -> Result<PathBuf> {
     if let Some(bin) = ffmpeg_bin() {
         return Ok(bin);
@@ -270,7 +570,10 @@ pub async fn ensure_ffmpeg() -> Result<PathBuf> {
         }
     }
 
-    bail!("ffmpeg no está instalado. En el escritorio instálalo con `brew install ffmpeg` (o tu gestor de paquetes); en móvil descárgalo desde Ajustes > Paquetes.");
+    bail!(
+        "Motor de conversión no disponible todavía. \
+         Se está preparando solo; inténtalo de nuevo en un momento."
+    );
 }
 
 /// Validate a URL the user pasted before it ever reaches a child process.
@@ -404,6 +707,108 @@ mod tests {
         assert!(extract_zip_member(buf.get_ref(), "otro", &dest).is_err());
     }
 
+    #[test]
+    fn zip_all_extracts_tree_and_rejects_traversal() {
+        use std::io::Write;
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut w = zip::ZipWriter::new(&mut buf);
+            w.start_file("ytdlp", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            w.write_all(b"launcher").unwrap();
+            w.start_file(
+                "prefix/lib/python3.14/site-packages/yt_dlp/__init__.py",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+            w.write_all(b"# pkg").unwrap();
+            w.finish().unwrap();
+        }
+        let dir = tempfile::tempdir().unwrap();
+        extract_zip_all(buf.get_ref(), dir.path()).unwrap();
+        assert_eq!(
+            std::fs::read(dir.path().join("ytdlp")).unwrap(),
+            b"launcher"
+        );
+        assert!(dir
+            .path()
+            .join("prefix/lib/python3.14/site-packages/yt_dlp/__init__.py")
+            .is_file());
+
+        // Zip-slip: `..` debe rechazarse sin escribir nada fuera.
+        let mut evil = std::io::Cursor::new(Vec::new());
+        {
+            let mut w = zip::ZipWriter::new(&mut evil);
+            w.start_file("../evil.sh", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            w.write_all(b"nope").unwrap();
+            w.finish().unwrap();
+        }
+        let dir2 = tempfile::tempdir().unwrap();
+        assert!(extract_zip_all(evil.get_ref(), dir2.path()).is_err());
+        assert!(!dir2.path().join("evil.sh").exists());
+    }
+
+    #[test]
+    fn ytdlp_runtime_layout_paths() {
+        // Rutas puras: no tocan el FS.
+        assert!(ytdlp_runtime_launcher().starts_with(ytdlp_runtime_dir()));
+        assert_eq!(ytdlp_runtime_launcher().file_name().unwrap(), "ytdlp");
+        assert!(ytdlp_runtime_prefix_lib().ends_with(std::path::Path::new("prefix/lib")));
+    }
+
+    #[test]
+    fn runtime_verify_rejects_incomplete_tree() {
+        let dir = tempfile::tempdir().unwrap();
+        // Vacío: falla por launcher.
+        assert!(verify_ytdlp_runtime(dir.path()).is_err());
+        std::fs::write(dir.path().join("ytdlp"), b"x").unwrap();
+        // Con launcher pero sin prefix/lib: falla.
+        assert!(verify_ytdlp_runtime(dir.path()).is_err());
+        // Árbol completo mínimo: pasa.
+        let mm = YTDLP_RUNTIME_PYTHON_MM;
+        let sp = dir
+            .path()
+            .join("prefix")
+            .join("lib")
+            .join(format!("python{mm}/site-packages"));
+        std::fs::create_dir_all(sp.join("yt_dlp")).unwrap();
+        std::fs::create_dir_all(sp.join("certifi")).unwrap();
+        std::fs::write(
+            dir.path()
+                .join("prefix/lib")
+                .join(format!("libpython{mm}.so")),
+            b"so",
+        )
+        .unwrap();
+        std::fs::write(sp.join("yt_dlp/__main__.py"), b"#").unwrap();
+        assert!(verify_ytdlp_runtime(dir.path()).is_ok());
+    }
+
+    #[test]
+    fn zip_suffix_extracts_nested_binary() {
+        use std::io::Write;
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut w = zip::ZipWriter::new(&mut buf);
+            // Layout tipo Gyan essentials.
+            w.start_file(
+                "ffmpeg-7-essentials_build/bin/ffmpeg.exe",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+            w.write_all(b"fake-ffmpeg").unwrap();
+            w.start_file("README.txt", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            w.write_all(b"hi").unwrap();
+            w.finish().unwrap();
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("ffmpeg.exe");
+        extract_zip_suffix(buf.get_ref(), "bin/ffmpeg.exe", &dest).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"fake-ffmpeg");
+        assert!(extract_zip_suffix(buf.get_ref(), "bin/ffprobe.exe", &dest).is_err());
+    }
     #[test]
     fn ffmpeg_prefers_bundled_arch_on_macos() {
         // Solo comprueba la construcción de candidatos (sin FS).

@@ -45,45 +45,73 @@ async fn installed_version(bin: &std::path::Path) -> Option<String> {
 }
 
 /// Run the version check + optional self-update in the background, emitting a
-/// `YtdlpStatus` event and persisting the outcome.
+/// `YtdlpStatus` event and persisting the outcome. Self-provisions the
+/// engine first so a missing binary heals silently instead of erroring.
 pub async fn check_and_update(engine: &AppEngine) -> Result<()> {
     let now = chrono::Utc::now().to_rfc3339();
+    crate::api::engine_api::ensure_engine_binaries().await?;
     let bin = ensure_yt_dlp().await?;
 
-    let mut version = installed_version(&bin).await;
-    let mut outdated = version.as_deref().map(is_outdated).unwrap_or(false);
+    // En Android el bloque de autoactualización está desactivado (`-U` no
+    // aplica al runtime integrado), así que nada se reasigna ahí.
+    #[cfg(target_os = "android")]
+    let (version, outdated) = {
+        let version = installed_version(&bin).await;
+        let outdated = version.as_deref().map(is_outdated).unwrap_or(false);
+        (version, outdated)
+    };
+    #[cfg(not(target_os = "android"))]
+    let (mut version, mut outdated) = {
+        let version = installed_version(&bin).await;
+        let outdated = version.as_deref().map(is_outdated).unwrap_or(false);
+        (version, outdated)
+    };
     let mut message = None;
 
     if outdated {
-        // Try a self-update; failure is non-fatal (offline, sandboxed, etc).
-        let up = tokio::time::timeout(
-            std::time::Duration::from_secs(120),
-            child_log(
-                &bin,
-                &["-U", "-q", "--no-cache-dir"],
-                null(),
-                null(),
-                pipe(),
+        // En Android yt-dlp es un runtime integrado (launcher + CPython +
+        // wheel), no un binario autoactualizable: `-U` no aplica y podría
+        // romper el bundle. La versión nueva llega actualizando la app, que
+        // re-descarga el runtime sola si hace falta.
+        #[cfg(target_os = "android")]
+        {
+            message = Some(
+                "El runtime integra yt-dlp; actualiza la app para recibir la versión nueva"
+                    .to_string(),
+            );
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            // Try a self-update; failure is non-fatal (offline, sandboxed, etc).
+            let up = tokio::time::timeout(
+                std::time::Duration::from_secs(120),
+                child_log(
+                    &bin,
+                    &["-U", "-q", "--no-cache-dir"],
+                    null(),
+                    null(),
+                    pipe(),
+                )
+                .output(),
             )
-            .output(),
-        )
-        .await;
-        if let Ok(Ok(out)) = up {
-            if out.status.success() {
-                version = installed_version(&bin).await;
-                outdated = version.as_deref().map(is_outdated).unwrap_or(false);
-                if !outdated {
-                    message = Some("yt-dlp actualizado correctamente".to_string());
+            .await;
+            if let Ok(Ok(out)) = up {
+                if out.status.success() {
+                    version = installed_version(&bin).await;
+                    outdated = version.as_deref().map(is_outdated).unwrap_or(false);
+                    if !outdated {
+                        message = Some("yt-dlp actualizado correctamente".to_string());
+                    }
+                } else {
+                    message = Some(
+                        String::from_utf8_lossy(&out.stderr)
+                            .lines()
+                            .rev()
+                            .take(3)
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    );
                 }
-            } else {
-                message = Some(
-                    String::from_utf8_lossy(&out.stderr)
-                        .lines()
-                        .rev()
-                        .take(3)
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                );
             }
         }
     }

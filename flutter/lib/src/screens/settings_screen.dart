@@ -19,9 +19,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _ytdlpMessage;
   bool _checking = false;
   AppDirs? _dirs;
-  BinariesStatus? _bins;
-  bool _downloading = false;
-  String? _binsMessage;
 
   /// Versión de la app instalada (pubspec `version:`) y resultado del
   /// chequeo contra el último release publicado en GitHub.
@@ -41,12 +38,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final ytdlp = await getYtdlpStatus();
       final dirs = await appDirs();
-      final bins = await binariesStatus();
       if (mounted) {
         setState(() {
           _ytdlp = ytdlp;
           _dirs = dirs;
-          _bins = bins;
         });
       }
     } catch (e) {
@@ -68,8 +63,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) {
         setState(() {
           _ytdlp = ytdlp;
+          // Sin binario el motor se auto-abastece en segundo plano: no se
+          // le pide nada al usuario, solo se refleja el estado.
           _ytdlpMessage = !ytdlp.present
-              ? 'yt-dlp no está instalado. Descárgalo en Paquetes del motor.'
+              ? 'Motor preparándose…'
               : ytdlp.outdated
               ? 'Versión desactualizada. Revisando…'
               : 'yt-dlp está actualizado';
@@ -79,31 +76,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) setState(() => _ytdlpMessage = 'Error: $e');
     } finally {
       if (mounted) setState(() => _checking = false);
-    }
-  }
-
-  Future<void> _downloadBinaries() async {
-    setState(() {
-      _downloading = true;
-      _binsMessage = null;
-    });
-    try {
-      await downloadMobileBinaries();
-      final status = await binariesStatus();
-      if (mounted) {
-        setState(() {
-          _bins = status;
-          _binsMessage = 'Paquetes instalados';
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _binsMessage = 'No se pudo descargar: ${e.toString()}';
-        });
-      }
-    } finally {
-      if (mounted) setState(() => _downloading = false);
     }
   }
 
@@ -135,9 +107,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _SectionTitle('Apariencia'),
           _buildAppearance(settings),
           const SizedBox(height: 12),
-          const Divider(),
-          _SectionTitle('Paquetes del motor'),
-          _buildBinaries(settings),
           const Divider(),
           _SectionTitle('Aplicación'),
           ListTile(
@@ -276,7 +245,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
-        'OfflineAudio 1.0.3 · uso personal.\n'
+        'OfflineAudio 1.1.0 · uso personal.\n'
         'Uso exclusivo de contenidos que tienes derecho a descargar.',
         textAlign: TextAlign.center,
         style: TextStyle(fontSize: 12, color: subtle),
@@ -356,82 +325,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: segmented,
-    );
-  }
-
-  Widget _buildBinaries(SettingsController settings) {
-    final b = _bins;
-    final yt = b?.ytDlpPresent ?? false;
-    final ff = b?.ffmpegPresent ?? false;
-    final status = b == null
-        ? 'Revisando…'
-        : 'yt-dlp ${yt ? '✓' : '✗'} · ffmpeg ${ff ? '✓' : '✗'}';
-    final installed = yt && ff;
-    // Columna en vez de ListTile con trailing: a cualquier ancho el botón
-    // nunca comprime el texto ni se estira la fila.
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const HugeIcon(icon: HugeIcons.strokeRoundedWrench01),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Binarios yt-dlp / ffmpeg'),
-                    Text(
-                      status,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface
-                            .withValues(alpha: 0.65),
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          _downloading
-              ? const Center(
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                )
-              : Center(
-                  child: FilledButton.tonalIcon(
-                    onPressed: installed ? null : _downloadBinaries,
-                    icon: const HugeIcon(
-                      icon: HugeIcons.strokeRoundedDownload01,
-                      size: 18,
-                    ),
-                    label: Text(installed ? 'Instalados' : 'Descargar'),
-                  ),
-                ),
-          if (_binsMessage != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Center(
-                child: Text(
-                  _binsMessage!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Theme.of(context).colorScheme.onSurface
-                        .withValues(alpha: 0.65),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
     );
   }
 

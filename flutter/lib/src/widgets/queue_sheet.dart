@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:hugeicons/hugeicons.dart';
 import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/engine/models.dart';
+import 'package:offline_audio_app/src/widgets/mini_equalizer.dart';
 import 'package:offline_audio_app/src/widgets/reorder_grip.dart';
 
 /// Modal sheet that shows the current playback queue with live search
@@ -138,10 +138,14 @@ class _QueueSheetState extends State<QueueSheet> {
                           key: ValueKey('${track.id}-$index'),
                           dense: true,
                           leading: isCurrent
-                              ? const HugeIcon(
-                                  icon: HugeIcons.strokeRoundedAudioWave01,
-                                  color: Colors.amber,
-                                  size: 20,
+                              ? SizedBox(
+                                  width: 20,
+                                  child: Center(
+                                    child: MiniEqualizer(
+                                      active:
+                                          isCurrent && model.isPlaying,
+                                    ),
+                                  ),
                                 )
                               : SizedBox(
                                   width: 20,

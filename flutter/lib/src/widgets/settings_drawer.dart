@@ -17,9 +17,6 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
   String? _ytdlpMessage;
   bool _checking = false;
   AppDirs? _dirs;
-  BinariesStatus? _bins;
-  bool _downloading = false;
-  String? _binsMessage;
 
   String _appVersion = '…';
   String? _updateMessage;
@@ -37,12 +34,10 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
     try {
       final ytdlp = await getYtdlpStatus();
       final dirs = await appDirs();
-      final bins = await binariesStatus();
       if (mounted) {
         setState(() {
           _ytdlp = ytdlp;
           _dirs = dirs;
-          _bins = bins;
         });
       }
     } catch (_) {}
@@ -58,7 +53,7 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
         setState(() {
           _ytdlp = ytdlp;
           _ytdlpMessage = !ytdlp.present
-              ? 'yt-dlp no está instalado. Descárgalo en Paquetes del motor.'
+              ? 'Motor preparándose…'
               : ytdlp.outdated
               ? 'Versión desactualizada. Revisando…'
               : 'yt-dlp está actualizado';
@@ -68,31 +63,6 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
       if (mounted) setState(() => _ytdlpMessage = 'Error: $e');
     } finally {
       if (mounted) setState(() => _checking = false);
-    }
-  }
-
-  Future<void> _downloadBinaries() async {
-    setState(() {
-      _downloading = true;
-      _binsMessage = null;
-    });
-    try {
-      await downloadMobileBinaries();
-      final status = await binariesStatus();
-      if (mounted) {
-        setState(() {
-          _bins = status;
-          _binsMessage = 'Paquetes instalados';
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _binsMessage = 'No se pudo descargar: ${e.toString()}';
-        });
-      }
-    } finally {
-      if (mounted) setState(() => _downloading = false);
     }
   }
 
@@ -128,9 +98,6 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
           _SectionTitle('Apariencia'),
           _buildAppearance(settings),
           const SizedBox(height: 12),
-          const Divider(),
-          _SectionTitle('Paquetes del motor'),
-          _buildBinaries(settings),
           const Divider(),
           _SectionTitle('Aplicación'),
           ListTile(
@@ -211,7 +178,7 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
             ),
             title: const Text('Acerca de'),
             subtitle: const Text(
-              'OfflineAudio 1.0.3 · uso personal.\nUso exclusivo de contenidos que tienes derecho a descargar.',
+              'OfflineAudio 1.1.0 · uso personal.\nUso exclusivo de contenidos que tienes derecho a descargar.',
             ),
           ),
         ],
@@ -225,82 +192,6 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Center(child: _AppearanceSegments(settings: settings)),
-    );
-  }
-
-  Widget _buildBinaries(SettingsController settings) {
-    final b = _bins;
-    final yt = b?.ytDlpPresent ?? false;
-    final ff = b?.ffmpegPresent ?? false;
-    final status = b == null
-        ? 'Revisando…'
-        : 'yt-dlp ${yt ? '✓' : '✗'} · ffmpeg ${ff ? '✓' : '✗'}';
-    final installed = yt && ff;
-    // Columna en vez de ListTile con trailing: en el cajón estrecho el
-    // botón nunca comprime el texto ni se estira la fila.
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const HugeIcon(icon: HugeIcons.strokeRoundedWrench01),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Binarios yt-dlp / ffmpeg'),
-                    Text(
-                      status,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface
-                            .withValues(alpha: 0.65),
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          _downloading
-              ? const Center(
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                )
-              : Center(
-                  child: FilledButton.tonalIcon(
-                    onPressed: installed ? null : _downloadBinaries,
-                    icon: const HugeIcon(
-                      icon: HugeIcons.strokeRoundedDownload01,
-                      size: 18,
-                    ),
-                    label: Text(installed ? 'Instalados' : 'Descargar'),
-                  ),
-                ),
-          if (_binsMessage != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Center(
-                child: Text(
-                  _binsMessage!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Theme.of(context).colorScheme.onSurface
-                        .withValues(alpha: 0.65),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
     );
   }
 }

@@ -338,9 +338,50 @@ jobs:
           path: dist/
         if: always()
 
+  # Runtime autocontenido de yt-dlp para Android (no existe build oficial:
+  # bionic). Cada zip lleva el launcher `ytdlp` + CPython de python.org + el
+  # wheel de yt-dlp; la app lo descarga a <bin_dir>/ytdlp desde Ajustes >
+  # Paquetes (`binary.ytdlp_url`, con default a estos assets). OJO: el default
+  # del motor apunta a `releases/latest/download/...`, que solo resuelve
+  # cuando el release deja de ser draft y se marca como latest: hay que
+  # publicar el draft a mano tras revisar los artefactos.
+  ytdlp-runtime:
+    name: 'yt-dlp runtime Android (${{ matrix.abi }})'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        abi: [arm64-v8a, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+      # El NDK exacto que espera flutter.ndkVersion; el script lo localiza
+      # vía ANDROID_HOME (igual que el job android).
+      - name: Install Android NDK
+        shell: bash
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKMANAGER" ] || SDKMANAGER="$(command -v sdkmanager)"
+          yes | "$SDKMANAGER" "ndk;28.2.13676358" > /dev/null || true
+      - name: Build runtime
+        shell: bash
+        run: |
+          chmod +x flutter/tool/android/build_ytdlp_runtime.sh
+          # El pin vive en runtime_versions.env; el motor lleva los mismos
+          # consts en Rust. Si alguien bumpea uno sin el otro, falla aquí
+          # en vez de en el móvil del usuario.
+          . flutter/tool/android/runtime_versions.env
+          grep -q "\"$YTDLP_VERSION\"" rust/src/engine/process.rs \
+            || { echo "process.rs YTDLP_RUNTIME_YTDLP_VERSION != $YTDLP_VERSION (runtime_versions.env)" >&2; exit 1; }
+          grep -q "\"${PYTHON_VERSION%.*}\"" rust/src/engine/process.rs \
+            || { echo "process.rs YTDLP_RUNTIME_PYTHON_MM != ${PYTHON_VERSION%.*}" >&2; exit 1; }
+          ./flutter/tool/android/build_ytdlp_runtime.sh "${{ matrix.abi }}" dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ytdlp-runtime-${{ matrix.abi }}
+          path: dist/OfflineAudio-ytdlp-${{ matrix.abi }}.zip
+
   publish:
     name: 'Create GitHub Release'
-    needs: [macos, windows, linux, android, iphone]
+    needs: [macos, windows, linux, android, iphone, ytdlp-runtime]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

@@ -146,6 +146,14 @@ async fn run_download(
     kind: ContentKind,
     token: CancellationToken,
 ) -> Result<DownloadOutcome> {
+    // El usuario nunca prepara nada: si falta algún binario se descarga
+    // solo aquí antes de empezar (barato si ya están).
+    crate::api::engine_api::ensure_engine_binaries()
+        .await
+        .context(
+            "No se pudo preparar el motor de descargas. \
+             Comprueba tu conexión; se reintentará solo.",
+        )?;
     let probe = downloader::probe(&url).await?;
 
     if let Some(existing) = engine.db.find_track_by_source(&probe.source_id).await? {
@@ -224,6 +232,8 @@ async fn run_audio_download(
         download_date: chrono::Utc::now().to_rfc3339(),
         play_count: 0,
         last_played: None,
+        completed_count: 0,
+        total_listen_seconds: 0,
     };
     persist_track(engine, task_id, &track).await
 }
@@ -279,6 +289,8 @@ async fn run_video_download(
         download_date: chrono::Utc::now().to_rfc3339(),
         play_count: 0,
         last_played: None,
+        completed_count: 0,
+        total_listen_seconds: 0,
     };
     persist_track(engine, task_id, &track).await
 }
@@ -306,7 +318,10 @@ async fn ytdlp_download_to_file(
     let keyword = format!("dl_{}", Uuid::new_v4().simple());
     paths::ensure_dirs()?;
     let pattern = PathBuf::from(&engine.tmp_dir).join(format!("{keyword}.%(ext)s"));
-    let bin = ytdlp_bin().context("yt-dlp no está instalado")?;
+    let bin = ytdlp_bin().context(
+        "Motor de descargas no disponible todavía. \
+         Se está preparando solo; inténtalo de nuevo en un momento.",
+    )?;
     let args = downloader::ytdlp_video_args(url, &pattern.to_string_lossy());
 
     let mut yt = child_log(&bin, &to_refs(&args), null(), null(), pipe()).spawn()?;
@@ -375,7 +390,10 @@ async fn strategy_stream(
     meta: &AudioMeta,
     token: CancellationToken,
 ) -> Result<()> {
-    let bin = ytdlp_bin().context("yt-dlp no está instalado")?;
+    let bin = ytdlp_bin().context(
+        "Motor de descargas no disponible todavía. \
+         Se está preparando solo; inténtalo de nuevo en un momento.",
+    )?;
     let args = ytdlp_stream_args(url);
     let mut yt = child_log(&bin, &to_refs(&args), null(), pipe(), pipe()).spawn()?;
     let mut ff = converter::convert_from_stdin(kind, output, meta)?
@@ -484,7 +502,10 @@ async fn strategy_disk(
     let keyword = format!("dl_{}", Uuid::new_v4().simple());
     paths::ensure_dirs()?;
     let pattern = PathBuf::from(&engine.tmp_dir).join(format!("{keyword}.%(ext)s"));
-    let bin = ytdlp_bin().context("yt-dlp no está instalado")?;
+    let bin = ytdlp_bin().context(
+        "Motor de descargas no disponible todavía. \
+         Se está preparando solo; inténtalo de nuevo en un momento.",
+    )?;
     let args = ytdlp_disk_args(url, &pattern.to_string_lossy());
 
     let mut yt = child_log(&bin, &to_refs(&args), null(), null(), pipe()).spawn()?;

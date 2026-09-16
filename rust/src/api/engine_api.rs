@@ -35,9 +35,12 @@ pub async fn init_app() -> Result<()> {
     let engine = AppEngine::init().await?;
     let _ = ENGINE.set(engine);
 
-    // Kick off the yt-dlp version check self-update in the background.
-    let engine = engine_ref().clone();
+    // El usuario nunca descarga nada a mano: el motor se auto-abastece en
+    // segundo plano (binarios integrados en el release o descarga silenciosa
+    // la primera vez) y el check de versión llega después, ya con motor.
     tokio::spawn(async move {
+        let _ = ensure_engine_binaries().await;
+        let engine = engine_ref().clone();
         let _ = crate::engine::ytdlp::check_and_update(&engine).await;
     });
     Ok(())
@@ -103,6 +106,17 @@ pub async fn record_play(id: String) -> Result<()> {
     engine_ref()
         .db
         .record_play(&id, &chrono::Utc::now().to_rfc3339())
+        .await
+}
+
+/// Record a completed listen (playhead reached the end of the track):
+/// bumps completed_count, accumulates listened seconds and refreshes
+/// last_played. Feeds the expert shuffle.
+#[flutter_rust_bridge::frb]
+pub async fn record_play_completed(id: String, listened_seconds: i64) -> Result<()> {
+    engine_ref()
+        .db
+        .record_play_completed(&id, listened_seconds, &chrono::Utc::now().to_rfc3339())
         .await
 }
 
@@ -290,9 +304,18 @@ pub async fn binaries_status() -> Result<BinariesStatus> {
 }
 
 /// Default download sources for the runtime binaries. Overridable via
-/// the `binary.ytdlp_url` / `binary.ffmpeg_url` settings (Ajustes > Paquetes).
+/// the `binary.ytdlp_url` / `binary.ffmpeg_url` settings (only set
+/// programmatically; there is no UI for them — the engine self-provisions).
 /// Host your own static builds (e.g. a `OfflineAudio-Binaries` release) and
 /// point these URLs there.
+///
+/// Versiones del runtime Android pineadas en
+/// `flutter/tool/android/runtime_versions.env`; mantener sincronizado
+/// `YTDLP_RUNTIME_*` con ese fichero (el build falla si el zip no coincide).
+#[cfg(target_os = "android")]
+pub const YTDLP_RUNTIME_YTDLP_VERSION: &str = "2026.8.19";
+#[cfg(target_os = "android")]
+pub const YTDLP_RUNTIME_PYTHON_MM: &str = "3.14";
 #[cfg(all(target_os = "android", target_arch = "aarch64"))]
 const DEFAULT_FFMPEG_URL: &str =
     "https://github.com/Tyrrrz/FFmpegBin/releases/latest/download/ffmpeg-android-arm64.zip";
@@ -321,19 +344,83 @@ const DEFAULT_YTDLP_URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/lates
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 const DEFAULT_YTDLP_NAME: &str = "yt-dlp";
 
-/// Download yt-dlp + ffmpeg into the app binary dir. On Android ffmpeg comes
-/// from per-ABI builds (Tyrrrz/FFmpegBin) and yt-dlp from the configured URL
-/// (no official Android build exists: glibc/musl vs bionic). On desktop
-/// yt-dlp comes from its official release and ffmpeg must already be present
-/// (bundled in the release archives or installed via the system package
-/// manager). iOS cannot execute external binaries (sandbox) — TODO
-/// library-based instead.
-#[flutter_rust_bridge::frb]
-pub async fn download_mobile_binaries() -> Result<()> {
+/// ffmpeg por defecto en escritorio (misma fuente que empaquetan los
+/// releases del CI, para que "Descargar" repare lo mismo que trae el .zip):
+/// Windows = Gyan essentials (zip anidado), macOS = Tyrrrz por arch,
+/// Linux = BtbN gpl zip. En Android siguen siendo los builds por ABI.
+#[cfg(target_os = "windows")]
+const DEFAULT_FFMPEG_URL: &str = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+#[cfg(target_os = "macos")]
+const DEFAULT_FFMPEG_URL_ARM: &str =
+    "https://github.com/Tyrrrz/FFmpegBin/releases/latest/download/ffmpeg-osx-arm64.zip";
+#[cfg(target_os = "macos")]
+const DEFAULT_FFMPEG_URL_X64: &str =
+    "https://github.com/Tyrrrz/FFmpegBin/releases/latest/download/ffmpeg-osx-x64.zip";
+#[cfg(target_os = "linux")]
+const DEFAULT_FFMPEG_URL: &str =
+    "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-linux64-gpl.zip";
+
+/// Base de los assets del runtime de yt-dlp para Android (launcher + CPython
+/// + wheel), publicados por el workflow `ytdlp-runtime` en cada release.
+/// No existe build oficial de yt-dlp para Android (bionic), así que el propio
+/// repo distribuye el bundle autocontenido por ABI. Solo hay builds de 64
+/// bits: python.org no publica CPython embeddable de 32 bits para Android.
+#[cfg(target_os = "android")]
+const YTDLP_RUNTIME_RELEASE_BASE: &str =
+    "https://github.com/danielferparradiaz/OfflineAudio/releases/latest/download";
+
+/// Default del runtime de yt-dlp según la ABI del dispositivo. Se resuelve en
+/// tiempo de ejecución (no con `cfg(target_arch)`) porque lo que importa es
+/// la ABI del APK que corre, no la del host de compilación.
+#[cfg(target_os = "android")]
+fn default_ytdlp_runtime_url() -> anyhow::Result<String> {
+    let asset = match std::env::consts::ARCH {
+        "aarch64" => "OfflineAudio-ytdlp-arm64-v8a.zip",
+        "x86_64" => "OfflineAudio-ytdlp-x86_64.zip",
+        other => anyhow::bail!(
+            "yt-dlp no disponible en esta ABI ({other}): el runtime solo existe para arm64-v8a y x86_64."
+        ),
+    };
+    Ok(format!("{YTDLP_RUNTIME_RELEASE_BASE}/{asset}"))
+}
+/// Garantiza yt-dlp + ffmpeg sin pedirle nada al usuario. Si ya están
+/// (integrados en el release, en PATH o descargados antes) es un chequeo
+/// barato; si falta alguno se descarga en silencio con las mismas fuentes
+/// pineadas del release. Las descargas concurrentes se serializan con un
+/// candado global para no bajar dos veces lo mismo. En caso de fallo
+/// (p. ej. sin conexión) devuelve un error neutro: el arranque y los
+/// reintentos lo volverán a intentar solos.
+pub async fn ensure_engine_binaries() -> Result<()> {
+    use crate::engine::process::{ffmpeg_bin, ytdlp_bin};
+    if ytdlp_bin().is_some() && ffmpeg_bin().is_some() {
+        return Ok(());
+    }
+    static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+    let _guard = LOCK
+        .get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await;
+    // Re-chequear tras el candado: otra tarea pudo completar la descarga.
+    if ytdlp_bin().is_some() && ffmpeg_bin().is_some() {
+        return Ok(());
+    }
+    provision_engine_binaries().await
+}
+
+/// Descarga yt-dlp + ffmpeg en el bin dir de la app. Funciona en todas las
+/// plataformas: en Android ffmpeg viene de builds por ABI (Tyrrrz/FFmpegBin)
+/// y yt-dlp como runtime autocontenido publicado por este repo (no existe
+/// build oficial: glibc/musl frente a bionic); en escritorio yt-dlp viene de
+/// su release oficial y ffmpeg de la misma fuente que empaquetan los
+/// releases del CI (Gyan/Tyrrrz/BtbN). iOS no puede ejecutar binarios
+/// externos (sandbox).
+async fn provision_engine_binaries() -> Result<()> {
     #[cfg(target_os = "ios")]
     {
-        let _ = engine_ref();
-        anyhow::bail!("La descarga automática de binarios aún no está disponible en iOS.");
+        anyhow::bail!(
+            "Motor de descargas no disponible en este dispositivo. \
+             Se reintentará automáticamente."
+        );
     }
 
     #[cfg(not(target_os = "ios"))]
@@ -341,40 +428,119 @@ pub async fn download_mobile_binaries() -> Result<()> {
         let db = &engine_ref().db;
         #[cfg(target_os = "android")]
         {
+            // Fail-fast en ABIs sin runtime (32 bits): antes de bajar nada,
+            // para no dejar medio instalado ffmpeg y luego fallar yt-dlp.
+            let yt_url = match db.get_setting("binary.ytdlp_url").await? {
+                Some(u) if !u.trim().is_empty() => u,
+                _ => default_ytdlp_runtime_url()?,
+            };
             let ff_url = db
                 .get_setting("binary.ffmpeg_url")
                 .await?
+                .filter(|u| !u.trim().is_empty())
                 .unwrap_or_else(|| DEFAULT_FFMPEG_URL.to_string());
-            crate::engine::process::download_zip_binary("ffmpeg", &ff_url).await?;
-            // yt-dlp has no official Android build; only a user-provided URL
-            // (Ajustes > Paquetes > URLs personalizadas) can fill the gap.
-            match db.get_setting("binary.ytdlp_url").await? {
-                Some(yt_url) => {
-                    crate::engine::process::download_binary("yt-dlp", &yt_url).await?;
-                    Ok(())
-                }
-                None => anyhow::bail!(
-                    "ffmpeg descargado. yt-dlp no tiene binario oficial para Android: publica tu propio build y pon su URL en Ajustes > Paquetes del motor > URLs personalizadas."
-                ),
-            }
+            let ff_bin = crate::engine::process::download_zip_binary("ffmpeg", &ff_url).await?;
+            crate::engine::process::smoke_binary(&ff_bin, &["-version"]).await?;
+            // yt-dlp llega como runtime autocontenido (zip con launcher +
+            // CPython + wheel). La instalación es atómica + smoke
+            // `--version` dentro de `download_ytdlp_runtime`.
+            let launcher = crate::engine::process::download_ytdlp_runtime(&yt_url).await?;
+            let _ = launcher;
+            Ok(())
         }
         #[cfg(not(target_os = "android"))]
         {
             let yt_url = db
                 .get_setting("binary.ytdlp_url")
                 .await?
+                .filter(|u| !u.trim().is_empty())
                 .unwrap_or_else(|| DEFAULT_YTDLP_URL.to_string());
-            crate::engine::process::download_binary(DEFAULT_YTDLP_NAME, &yt_url).await?;
-            // ffmpeg ships inside the release archives (Windows .zip, macOS
-            // .dmg/.zip, Linux .tar.gz); otherwise it comes from the system
-            // package manager.
+            // Si el release ya trae el binario integrado no se toca.
+            if crate::engine::process::ytdlp_bin().is_none() {
+                let yt_bin =
+                    crate::engine::process::download_binary(DEFAULT_YTDLP_NAME, &yt_url).await?;
+                crate::engine::process::smoke_binary(&yt_bin, &["--version"]).await?;
+            }
+            // ffmpeg: si ya está (integrado junto al ejecutable o en PATH)
+            // no se toca; si falta se baja de la misma fuente del CI.
             if crate::engine::process::ffmpeg_bin().is_none() {
+                download_desktop_ffmpeg(db).await?;
+            }
+            if crate::engine::process::ffmpeg_bin().is_none()
+                || crate::engine::process::ytdlp_bin().is_none()
+            {
                 anyhow::bail!(
-                    "yt-dlp descargado. Falta ffmpeg: viene integrado en el archivo del release; si no, en macOS `brew install ffmpeg`, en Linux usa tu gestor de paquetes y en Windows `winget install Gyan.FFmpeg`."
+                    "No se pudo preparar el motor de descargas. \
+                     Comprueba tu conexión; se reintentará automáticamente."
                 );
             }
             Ok(())
         }
+    }
+}
+
+/// Compatibilidad: antes lo llamaba un botón de Ajustes (ya eliminado; el
+/// motor se auto-abastece). Se mantiene expuesto por si hace falta
+/// re-provisionar desde diagnósticos.
+#[flutter_rust_bridge::frb]
+pub async fn download_mobile_binaries() -> Result<()> {
+    ensure_engine_binaries().await
+}
+/// Baja ffmpeg en escritorio desde la fuente del CI (o `binary.ffmpeg_url`
+/// si el usuario la configuró) y verifica que arranque. El zip anidado de
+/// cada proveedor se resuelve por sufijo.
+#[cfg(not(target_os = "android"))]
+async fn download_desktop_ffmpeg(db: &crate::storage::AppDatabase) -> anyhow::Result<()> {
+    use crate::engine::process as proc;
+    if let Some(custom) = db
+        .get_setting("binary.ffmpeg_url")
+        .await?
+        .filter(|u| !u.trim().is_empty())
+    {
+        // URL personalizada: se asume el layout Tyrrrz (un `ffmpeg` en la
+        // raíz del zip); si tu zip lo trae anidado, usa el nombre con el que
+        // lo publiques o apunta al binario directo.
+        if custom.ends_with(".zip") {
+            let bin = proc::download_zip_binary("ffmpeg", &custom).await?;
+            proc::smoke_binary(&bin, &["-version"]).await?;
+        } else {
+            let bin = proc::download_binary("ffmpeg", &custom).await?;
+            proc::smoke_binary(&bin, &["-version"]).await?;
+        }
+        return Ok(());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let bin =
+            proc::download_zip_binary_suffix("ffmpeg.exe", DEFAULT_FFMPEG_URL, "bin/ffmpeg.exe")
+                .await?;
+        proc::smoke_binary(&bin, &["-version"]).await?;
+        Ok(())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let url = match std::env::consts::ARCH {
+            "aarch64" => DEFAULT_FFMPEG_URL_ARM,
+            _ => DEFAULT_FFMPEG_URL_X64,
+        };
+        // Se guarda como `ffmpeg-<arch>` igual que el bundle del CI para que
+        // `ffmpeg_bin()` lo prefiera en su arquitectura.
+        let dest = format!("ffmpeg-{}", std::env::consts::ARCH);
+        let bin = proc::download_zip_binary(&dest, url).await?;
+        proc::smoke_binary(&bin, &["-version"]).await?;
+        Ok(())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let bin =
+            proc::download_zip_binary_suffix("ffmpeg", DEFAULT_FFMPEG_URL, "bin/ffmpeg").await?;
+        proc::smoke_binary(&bin, &["-version"]).await?;
+        Ok(())
+    }
+    #[cfg(target_os = "ios")]
+    {
+        let _ = db;
+        anyhow::bail!("ffmpeg no disponible en iOS (sandbox)");
     }
 }
 

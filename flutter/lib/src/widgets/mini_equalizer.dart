@@ -2,10 +2,14 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-/// Pequeño ecualizador animado (4 barras) para el pie de la cola y otras
-/// zonas "en vivo". Misma tónica visual que "Ver lista": color tenue del
-/// texto. Solo anima cuando [active] es true; si no, las barras quedan bajas
-/// y estáticas.
+/// Pequeño ecualizador animado (4 barras) para la cola y el detalle de
+/// playlist, en la fila que está sonando. Misma tónica visual que el resto:
+/// color tenue del texto. Solo aparece en la canción actual: con [active] en
+/// true las barras bailan; en pausa se minimizan y quedan bajas y estáticas
+/// (como la música calmándose), sin desaparecer de golpe.
+///
+/// Cabe en 20 px de ancho (leading compacto de la cola): 4 barras de 2 px
+/// con 1 px de margen por lado.
 class MiniEqualizer extends StatefulWidget {
   const MiniEqualizer({super.key, this.active = true});
 
@@ -20,6 +24,10 @@ class _MiniEqualizerState extends State<MiniEqualizer>
   static const double _base = 4;
   static const List<double> _peaks = [7, 12, 9, 14];
   static const List<double> _phases = [0, 1.3, 2.4, 0.6];
+
+  /// Altura fija del widget: techo de la barra más alta
+  /// (`_base + max(_peaks) * 0.7` = 13.8 → 14).
+  static const double _maxHeight = 14;
 
   late final AnimationController _controller;
 
@@ -58,22 +66,27 @@ class _MiniEqualizerState extends State<MiniEqualizer>
       animation: _controller,
       builder: (context, _) {
         final t = _controller.value;
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            for (var i = 0; i < _peaks.length; i++)
-              Container(
-                width: 3,
-                height: _barHeight(i, t),
-                margin: const EdgeInsets.symmetric(horizontal: 1.5),
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.circular(1.5),
+        // Alto fijo (= barra máxima): el Row ya no se redimensiona con la
+        // animación y, alineado abajo, la base queda quieta; solo baila la
+        // parte superior de cada barra.
+        return SizedBox(
+          height: _maxHeight,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (var i = 0; i < _peaks.length; i++)
+                Container(
+                  width: 2,
+                  height: _barHeight(i, t),
+                  margin: const EdgeInsets.symmetric(horizontal: 1),
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(1),
+                  ),
                 ),
-              ),
-            const SizedBox(width: 2),
-          ],
+            ],
+          ),
         );
       },
     );

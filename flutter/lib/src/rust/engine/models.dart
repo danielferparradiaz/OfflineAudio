@@ -174,6 +174,13 @@ class Track {
   final PlatformInt64 playCount;
   final String? lastPlayed;
 
+  /// Full listens (reached the end of the track). Drives the expert
+  /// shuffle together with `total_listen_seconds`.
+  final PlatformInt64 completedCount;
+
+  /// Seconds actually listened across all sessions.
+  final PlatformInt64 totalListenSeconds;
+
   const Track({
     required this.id,
     required this.sourceId,
@@ -191,6 +198,8 @@ class Track {
     required this.downloadDate,
     required this.playCount,
     this.lastPlayed,
+    required this.completedCount,
+    required this.totalListenSeconds,
   });
 
   @override
@@ -210,7 +219,9 @@ class Track {
       bitrateKbps.hashCode ^
       downloadDate.hashCode ^
       playCount.hashCode ^
-      lastPlayed.hashCode;
+      lastPlayed.hashCode ^
+      completedCount.hashCode ^
+      totalListenSeconds.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -232,5 +243,7 @@ class Track {
           bitrateKbps == other.bitrateKbps &&
           downloadDate == other.downloadDate &&
           playCount == other.playCount &&
-          lastPlayed == other.lastPlayed;
+          lastPlayed == other.lastPlayed &&
+          completedCount == other.completedCount &&
+          totalListenSeconds == other.totalListenSeconds;
 }

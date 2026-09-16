@@ -80,7 +80,8 @@ pub fn likely_speech(
 pub async fn probe(url: &str) -> Result<ProbeInfo> {
     let url = sanitize_url(url)?;
     let bin = ensure_yt_dlp().await.context(
-        "yt-dlp no está instalado. Instálalo con: brew install yt-dlp (o `pipx install yt-dlp`)",
+        "Motor de descargas no disponible todavía. \
+         Se está preparando solo; inténtalo de nuevo en un momento.",
     )?;
 
     let mut cmd = child_log(

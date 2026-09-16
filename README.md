@@ -21,23 +21,30 @@ de este repo al crear un tag `v*`.
 | **iPhone / iPad** | `OfflineAudio-ios-altstore.ipa` | Instalar con **AltStore** o **Sideloadly** (firma el instalador tu cuenta de Apple). La versión oficial llegará **próximamente a la App Store** |
 | **Android** | `OfflineAudio-android-arm64-v8a.apk` (y variantes `armeabi-v7a`, `x86_64`) + `.aab` | Permitir «orígenes desconocidos» e instalar el APK de tu arquitectura (arm64 en la mayoría de móviles) |
 
-> **Binarios del motor (`yt-dlp` + `ffmpeg`):** la app los trae integrados
-> donde el sistema lo permite y solo consulta actualizaciones (`yt-dlp -U`
-> desde **Ajustes → Paquetes del motor**).
+> **Binarios del motor (`yt-dlp` + `ffmpeg`):** el usuario no tiene que
+> descargar ni instalar nada: la app los trae integrados donde el sistema
+> lo permite y, si falta alguno, el motor lo prepara solo en segundo plano.
 >
 > | Plataforma | yt-dlp | ffmpeg |
 > | ---------- | ------ | ------ |
 > | Windows (`.zip`) | Integrado | Integrado |
 > | macOS (`.dmg`/`.zip`) | Integrado | Integrado (uno por arch) |
 > | Linux (`.tar.gz`) | Integrado | Integrado |
-> | Android (`.apk`) | Sin build oficial (ver nota) | Se descarga al pulsar **Descargar** |
+> | Android (`.apk`) | Automático (runtime propio, ver nota) | Automático |
 > | iOS | No disponible (sandbox) | No disponible (sandbox) |
 >
-> En **Ajustes → Paquetes del motor** hay campos de URL personalizada para
-> apuntar a tus propios builds. En Android no existe un binario oficial de
-> `yt-dlp` (glibc/musl frente a bionic): hasta publicar uno propio, las
-> descargas en Android necesitan esa URL. En iOS el sandbox prohíbe ejecutar
-> binarios externos, así que el soporte pasa por librerías (ver Roadmap).
+> En Android no existe un binario oficial de `yt-dlp` (glibc/musl frente a
+> bionic), así que cada release de este repo publica su propio runtime
+> autocontenido (`OfflineAudio-ytdlp-arm64-v8a.zip` / `-x86_64.zip`): un
+> launcher mínimo + el CPython oficial de python.org para Android + el `yt-dlp`
+> de PyPI. La app lo instala sola en su carpeta privada
+> (`.../app_flutter/bin/ytdlp`) al arrancar, sin pasos ni avisos.
+> Detalles de construcción en `flutter/tool/android/` (script
+> `build_ytdlp_runtime.sh` + job `ytdlp-runtime` del workflow Release).
+> Solo hay runtime de 64 bits (python.org no publica CPython de 32 bits para
+> Android). En iOS el sandbox prohíbe
+> ejecutar binarios externos, así que el soporte pasa por librerías (ver
+> Roadmap).
 
 ## Búsqueda y vídeo
 
@@ -111,9 +118,8 @@ AltStore/Sideloadly.
 - Biblioteca `.opus` + miniaturas + base de datos SQLite en el directorio de
   configuración del usuario (macOS: `~/Library/Application Support/OfflineAudio`).
 - En Android los binarios del motor se guardan en la carpeta privada de la app
-  (`.../app_flutter`), descargables desde **Ajustes → Paquetes del motor** con
-  URLs configurables (`binary.ytdlp_url`, `binary.ffmpeg_url`) por si quieres
-  apuntar a tus propios builds estáticos.
+  (`.../app_flutter`); la app los prepara sola al arrancar, sin intervención:
+  `yt-dlp` llega como runtime propio publicado en cada release.
 
 ## Legal
 

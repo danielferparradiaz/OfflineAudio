@@ -69,7 +69,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -63172955;
+  int get rustContentHash => 324083766;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -135,6 +135,11 @@ abstract class RustLibApi extends BaseApi {
   });
 
   Future<void> crateApiEngineApiRecordPlay({required String id});
+
+  Future<void> crateApiEngineApiRecordPlayCompleted({
+    required String id,
+    required PlatformInt64 listenedSeconds,
+  });
 
   Future<void> crateApiEngineApiRecordSearch({
     required String query,
@@ -816,6 +821,41 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "record_play", argNames: ["id"]);
 
   @override
+  Future<void> crateApiEngineApiRecordPlayCompleted({
+    required String id,
+    required PlatformInt64 listenedSeconds,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(id, serializer);
+          sse_encode_i_64(listenedSeconds, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 23,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiEngineApiRecordPlayCompletedConstMeta,
+        argValues: [id, listenedSeconds],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEngineApiRecordPlayCompletedConstMeta =>
+      const TaskConstMeta(
+        debugName: "record_play_completed",
+        argNames: ["id", "listenedSeconds"],
+      );
+
+  @override
   Future<void> crateApiEngineApiRecordSearch({
     required String query,
     required String source,
@@ -829,7 +869,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 24,
             port: port_,
           );
         },
@@ -864,7 +904,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 25,
             port: port_,
           );
         },
@@ -899,7 +939,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 26,
             port: port_,
           );
         },
@@ -934,7 +974,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 26,
+            funcId: 27,
             port: port_,
           );
         },
@@ -965,7 +1005,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 28,
             port: port_,
           );
         },
@@ -997,7 +1037,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 29,
             port: port_,
           );
         },
@@ -1029,7 +1069,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 30,
             port: port_,
           );
         },
@@ -1308,8 +1348,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Track dco_decode_track(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 16)
-      throw Exception('unexpected arr length: expect 16 but see ${arr.length}');
+    if (arr.length != 18)
+      throw Exception('unexpected arr length: expect 18 but see ${arr.length}');
     return Track(
       id: dco_decode_String(arr[0]),
       sourceId: dco_decode_String(arr[1]),
@@ -1327,6 +1367,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       downloadDate: dco_decode_String(arr[13]),
       playCount: dco_decode_i_64(arr[14]),
       lastPlayed: dco_decode_opt_String(arr[15]),
+      completedCount: dco_decode_i_64(arr[16]),
+      totalListenSeconds: dco_decode_i_64(arr[17]),
     );
   }
 
@@ -1716,6 +1758,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_downloadDate = sse_decode_String(deserializer);
     var var_playCount = sse_decode_i_64(deserializer);
     var var_lastPlayed = sse_decode_opt_String(deserializer);
+    var var_completedCount = sse_decode_i_64(deserializer);
+    var var_totalListenSeconds = sse_decode_i_64(deserializer);
     return Track(
       id: var_id,
       sourceId: var_sourceId,
@@ -1733,6 +1777,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       downloadDate: var_downloadDate,
       playCount: var_playCount,
       lastPlayed: var_lastPlayed,
+      completedCount: var_completedCount,
+      totalListenSeconds: var_totalListenSeconds,
     );
   }
 
@@ -2086,6 +2132,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.downloadDate, serializer);
     sse_encode_i_64(self.playCount, serializer);
     sse_encode_opt_String(self.lastPlayed, serializer);
+    sse_encode_i_64(self.completedCount, serializer);
+    sse_encode_i_64(self.totalListenSeconds, serializer);
   }
 
   @protected

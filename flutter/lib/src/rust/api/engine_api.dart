@@ -9,7 +9,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `engine_ref`
+// These functions are ignored because they are not marked as `pub`: `download_desktop_ffmpeg`, `engine_ref`
 
 /// Initialize the engine (directories, SQLite, settings) and start background
 /// workers. Called explicitly from Dart after `RustLib.init()` (and after
@@ -52,6 +52,17 @@ Future<Track?> deleteTrack({required String id}) =>
 /// Record a playback: bumps play_count and stamps last_played.
 Future<void> recordPlay({required String id}) =>
     RustLib.instance.api.crateApiEngineApiRecordPlay(id: id);
+
+/// Record a completed listen (playhead reached the end of the track):
+/// bumps completed_count, accumulates listened seconds and refreshes
+/// last_played. Feeds the expert shuffle.
+Future<void> recordPlayCompleted({
+  required String id,
+  required PlatformInt64 listenedSeconds,
+}) => RustLib.instance.api.crateApiEngineApiRecordPlayCompleted(
+  id: id,
+  listenedSeconds: listenedSeconds,
+);
 
 Future<Playlist> createPlaylist({required String name}) =>
     RustLib.instance.api.crateApiEngineApiCreatePlaylist(name: name);
@@ -139,13 +150,14 @@ Future<void> setAppDir({required String path}) =>
 Future<BinariesStatus> binariesStatus() =>
     RustLib.instance.api.crateApiEngineApiBinariesStatus();
 
-/// Download yt-dlp + ffmpeg into the app binary dir. On Android ffmpeg comes
-/// from per-ABI builds (Tyrrrz/FFmpegBin) and yt-dlp from the configured URL
-/// (no official Android build exists: glibc/musl vs bionic). On desktop
-/// yt-dlp comes from its official release and ffmpeg must already be present
-/// (bundled in the release archives or installed via the system package
-/// manager). iOS cannot execute external binaries (sandbox) — TODO
-/// library-based instead.
+/// Download yt-dlp + ffmpeg into the app binary dir. Funciona en todas las
+/// plataformas (el nombre histórico `download_mobile_binaries` se mantiene
+/// por compatibilidad FRB): en Android ffmpeg viene de builds por ABI
+/// (Tyrrrz/FFmpegBin) y yt-dlp como runtime autocontenido publicado por este
+/// repo; en escritorio yt-dlp viene de su release oficial y ffmpeg de la
+/// misma fuente que empaquetan los releases del CI (Gyan/Tyrrrz/BtbN), así el
+/// botón Descargar repara lo mismo que trae el .zip/.dmg. iOS no puede
+/// ejecutar binarios externos (sandbox).
 Future<void> downloadMobileBinaries() =>
     RustLib.instance.api.crateApiEngineApiDownloadMobileBinaries();
 

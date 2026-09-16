@@ -82,8 +82,10 @@ pub fn convert_from_stdin(
     output: &Path,
     meta: &AudioMeta,
 ) -> Result<tokio::process::Command> {
-    let bin =
-        ffmpeg_bin().context("ffmpeg no está instalado. Instálalo con: brew install ffmpeg")?;
+    let bin = ffmpeg_bin().context(
+        "Motor de conversión no disponible todavía. \
+         Se está preparando solo; inténtalo de nuevo en un momento.",
+    )?;
     Ok(stream_command(&bin.to_string_lossy(), kind, output, meta))
 }
 
@@ -94,8 +96,10 @@ pub fn convert_from_file(
     output: &Path,
     meta: &AudioMeta,
 ) -> Result<tokio::process::Command> {
-    let bin =
-        ffmpeg_bin().context("ffmpeg no está instalado. Instálalo con: brew install ffmpeg")?;
+    let bin = ffmpeg_bin().context(
+        "Motor de conversión no disponible todavía. \
+         Se está preparando solo; inténtalo de nuevo en un momento.",
+    )?;
     let mut args = vec![
         "-y".to_string(),
         "-i".to_string(),

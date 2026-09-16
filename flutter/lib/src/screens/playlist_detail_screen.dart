@@ -183,6 +183,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   ) {
     final scheme = Theme.of(context).colorScheme;
     final subtle = scheme.onSurface.withValues(alpha: 0.5);
+    final isCurrent = model.currentTrack?.id == t.id;
     final row = InkWell(
       onTap: () => model.playTrack(t),
       child: Padding(
@@ -191,8 +192,12 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
           children: [
             CircleAvatar(
               radius: 16,
-              backgroundColor: Colors.white10,
-              child: Text('${index + 1}'),
+              backgroundColor: isCurrent
+                  ? scheme.primary.withValues(alpha: 0.15)
+                  : Colors.white10,
+              child: isCurrent
+                  ? MiniEqualizer(active: model.isPlaying)
+                  : Text('${index + 1}'),
             ),
             const SizedBox(width: 12),
             Expanded(
