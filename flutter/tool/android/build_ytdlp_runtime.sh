@@ -25,6 +25,10 @@ set -euo pipefail
 
 ABI="${1:?uso: $0 <arm64-v8a|x86_64> [out_dir]}"
 OUT_DIR="${2:-dist}"
+mkdir -p "$OUT_DIR"
+# Absoluto: más abajo el zip se crea bajo $WORK/root y una ruta relativa
+# apuntaría dentro del staging (zip I/O error).
+OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Versiones pineadas en un solo sitio (ver runtime_versions.env). Se pueden
 # sobreescribir por env para probar un bump sin tocar el fichero.
@@ -49,14 +53,25 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 # --- NDK ---------------------------------------------------------------
+# Solo vale el NDK_VERSION pineado: el runner trae otro preinstalado
+# (ANDROID_NDK_ROOT) y compilar con el equivocado rompería la reproducibilidad.
+ndk_matches() {
+  case "$1" in
+    *"$NDK_VERSION"*) return 0 ;;
+  esac
+  local props="$1/source.properties"
+  [ -f "$props" ] && grep -q "Pkg.Revision = $NDK_VERSION" "$props"
+}
 find_ndk() {
   for c in "${ANDROID_NDK_ROOT:-}" \
            "${ANDROID_HOME:-$HOME/Library/Android/sdk}/ndk/$NDK_VERSION" \
            "$HOME/Library/Android/sdk/ndk/$NDK_VERSION" \
            /usr/local/lib/android/sdk/ndk/"$NDK_VERSION" \
            /opt/android-sdk/ndk/"$NDK_VERSION"; do
-    [ -n "$c" ] && [ -x "$c/toolchains/llvm/prebuilt/linux-x86_64/bin/${TRIPLE}${MIN_API}-clang" ] && { echo "$c/toolchains/llvm/prebuilt/linux-x86_64/bin"; return; }
-    [ -n "$c" ] && [ -x "$c/toolchains/llvm/prebuilt/darwin-x86_64/bin/${TRIPLE}${MIN_API}-clang" ] && { echo "$c/toolchains/llvm/prebuilt/darwin-x86_64/bin"; return; }
+    [ -n "$c" ] || continue
+    ndk_matches "$c" || continue
+    [ -x "$c/toolchains/llvm/prebuilt/linux-x86_64/bin/${TRIPLE}${MIN_API}-clang" ] && { echo "$c/toolchains/llvm/prebuilt/linux-x86_64/bin"; return; }
+    [ -x "$c/toolchains/llvm/prebuilt/darwin-x86_64/bin/${TRIPLE}${MIN_API}-clang" ] && { echo "$c/toolchains/llvm/prebuilt/darwin-x86_64/bin"; return; }
   done
   return 1
 }
