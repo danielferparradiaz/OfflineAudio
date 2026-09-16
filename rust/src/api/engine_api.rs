@@ -313,7 +313,7 @@ pub async fn binaries_status() -> Result<BinariesStatus> {
 /// `flutter/tool/android/runtime_versions.env`; mantener sincronizado
 /// `YTDLP_RUNTIME_*` con ese fichero (el build falla si el zip no coincide).
 #[cfg(target_os = "android")]
-pub const YTDLP_RUNTIME_YTDLP_VERSION: &str = "2026.8.19";
+pub const YTDLP_RUNTIME_YTDLP_VERSION: &str = "2026.08.19";
 #[cfg(target_os = "android")]
 pub const YTDLP_RUNTIME_PYTHON_MM: &str = "3.14";
 #[cfg(all(target_os = "android", target_arch = "aarch64"))]

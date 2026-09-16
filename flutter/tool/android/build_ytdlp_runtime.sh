@@ -142,8 +142,11 @@ for need in ' ytdlp$' 'prefix/lib/libpython' 'site-packages/yt_dlp/__main__.py' 
 done
 # La versión empaquetada debe ser exactamente la pineada: si PyPI resolvió
 # otra (o el wheel vino corrupto), el fallo sale aquí, no en el móvil.
+# Se comparan normalizadas (yt-dlp escribe 2026.08.19, el pin puede ir como
+# 2026.8.19): solo importan los números.
+norm_ver() { echo "$1" | awk -F'[.-]' '{printf "%d.%d.%d", $1, $2, $3}'; }
 GOT_YTDLP="$(python3 -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); n=[x for x in z.namelist() if x.endswith('yt_dlp/version.py')][0]; print(z.read(n).decode())" "$ZIP" | grep -oE '[0-9]{4}\.[0-9]+\.[0-9]+' | head -n1)"
-[ "$GOT_YTDLP" = "$YTDLP_VERSION" ] || { echo "yt-dlp en zip ($GOT_YTDLP) != pineado ($YTDLP_VERSION)" >&2; exit 1; }
+[ "$(norm_ver "$GOT_YTDLP")" = "$(norm_ver "$YTDLP_VERSION")" ] || { echo "yt-dlp en zip ($GOT_YTDLP) != pineado ($YTDLP_VERSION)" >&2; exit 1; }
 if command -v llvm-readelf >/dev/null; then READELF=llvm-readelf;
 elif [ -x "$NDKBIN/llvm-readelf" ]; then READELF="$NDKBIN/llvm-readelf";
 else READELF=""; fi

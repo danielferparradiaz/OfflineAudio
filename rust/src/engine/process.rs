@@ -52,7 +52,7 @@ fn ffmpeg_candidate_names() -> Vec<String> {
 /// Versiones pineadas en `flutter/tool/android/runtime_versions.env`:
 /// mantener estos consts sincronizados (el script de build falla si el zip
 /// no trae exactamente `YTDLP_RUNTIME_YTDLP_VERSION`).
-pub const YTDLP_RUNTIME_YTDLP_VERSION: &str = "2026.8.19";
+pub const YTDLP_RUNTIME_YTDLP_VERSION: &str = "2026.08.19";
 pub const YTDLP_RUNTIME_PYTHON_MM: &str = "3.14";
 pub fn ytdlp_runtime_dir() -> PathBuf {
     paths::bin_dir().join("ytdlp")
@@ -396,10 +396,29 @@ async fn smoke_ytdlp_launcher(launcher: &std::path::Path) -> Result<String> {
         bail!("el launcher no arranca (--version falló)");
     }
     let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if v != YTDLP_RUNTIME_YTDLP_VERSION {
+    // yt-dlp escribe la versión cero-padded (2026.08.19) pero el pin puede
+    // ir sin ceros: se comparan los números, no el string.
+    if normalize_version(&v) != normalize_version(YTDLP_RUNTIME_YTDLP_VERSION) {
         bail!("runtime trae yt-dlp {v}, esperado {YTDLP_RUNTIME_YTDLP_VERSION}");
     }
     Ok(v)
+}
+
+/// Normaliza una versión `yyyy.mm.dd` a números sin cero-padding para
+/// comparar (`2026.08.19` == `2026.8.19`). Lo no parseable se deja tal cual
+/// para que el mismatch siga cantando en vez de colar.
+fn normalize_version(s: &str) -> String {
+    let parts: Vec<String> = s
+        .trim()
+        .split(['.', '-'])
+        .take(3)
+        .map(|p| {
+            p.parse::<u32>()
+                .map(|n| n.to_string())
+                .unwrap_or_else(|_| p.to_string())
+        })
+        .collect();
+    parts.join(".")
 }
 
 #[cfg(windows)]
@@ -747,6 +766,15 @@ mod tests {
         let dir2 = tempfile::tempdir().unwrap();
         assert!(extract_zip_all(evil.get_ref(), dir2.path()).is_err());
         assert!(!dir2.path().join("evil.sh").exists());
+    }
+
+    #[test]
+    fn normalize_version_ignores_zero_padding() {
+        assert_eq!(normalize_version("2026.08.19"), "2026.8.19");
+        assert_eq!(normalize_version("2026.8.19"), "2026.8.19");
+        assert_eq!(normalize_version("  2026.08.19\n"), "2026.8.19");
+        // Lo no parseable no cuela como igual.
+        assert_ne!(normalize_version("nightly"), normalize_version("2026.8.19"));
     }
 
     #[test]
