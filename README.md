@@ -1,9 +1,12 @@
 # OfflineAudio
 
 Reproductor de audio offline multi-plataforma. Descarga audio desde YouTube,
-Instagram y otras fuentes vía `yt-dlp`, lo convierte a **Opus** con `ffmpeg`, lo
-guarda en una biblioteca local (SQLite) y lo reproduce sin conexión, agrupado en
-playlists.
+Instagram y otras fuentes, lo guarda en una biblioteca local (SQLite) y lo
+reproduce sin conexión, agrupado en playlists.
+
+- **Escritorio**: motor Rust (`yt-dlp` + `ffmpeg`) — audio a **Opus**, vídeo a **MP4**.
+- **Android**: motor nativo con [`youtubedl-android` + `ffmpeg-kit`](flutter/android/app/src/main/kotlin/com/offlineaudio/app/MainActivity.kt) (compatibilidad con targetSdk 36: nada de `execve()` en el directorio privado).
+- **iOS**: descargas y reproducción 100% nativas vía AVPlayer/Dart — el sandbox de Apple no permite binarios externos.
 
 Stack: motor Rust (`rust/`) + UI Flutter (`flutter/`) con `flutter_rust_bridge`.
 
@@ -26,54 +29,67 @@ la pestaña **[Releases](https://github.com/danielferparradiaz/OfflineAudio/rele
 > la app se distribuye sin notariar (sin cuenta de pago de Apple); el
 > sello del bundle sí es válido desde la v1.1.1.
 
-> **Binarios del motor (`yt-dlp` + `ffmpeg`):** el usuario no tiene que
-> descargar ni instalar nada: la app los trae integrados donde el sistema
-> lo permite y, si falta alguno, el motor lo prepara solo en segundo plano.
+> **Binarios del motor (`yt-dlp` + `ffmpeg`):** en escritorio el usuario no
+> tiene que descargar ni instalar nada: la app los trae integrados y, si falta
+> alguno, el motor lo prepara solo en segundo plano.
 >
-> | Plataforma | yt-dlp | ffmpeg |
-> | ---------- | ------ | ------ |
-> | Windows (`.zip`) | Integrado | Integrado |
-> | macOS (`.dmg`/`.zip`) | Integrado | Integrado (uno por arch) |
-> | Linux (`.tar.gz`) | Integrado | Integrado |
-> | Android (`.apk`) | Automático (runtime propio, ver nota) | Automático |
-> | iOS | No disponible (sandbox) | No disponible (sandbox) |
+> | Plataforma | Descargas | Reproducción |
+> | ---------- | --------- | ------------ |
+> | Windows / macOS / Linux | `yt-dlp` + `ffmpeg` integrados | `media_kit` (mpv) |
+> | Android | Nativo: `youtubedl-android` + `ffmpeg-kit` (integrados en el APK) | `media_kit` |
+> | iOS | Nativo (Dart): stream directo, sin binarios | AVPlayer (`just_audio`) |
 >
-> En Android no existe un binario oficial de `yt-dlp` (glibc/musl frente a
-> bionic), así que cada release de este repo publica su propio runtime
-> autocontenido (`OfflineAudio-ytdlp-arm64-v8a.zip` / `-x86_64.zip`): un
-> launcher mínimo + el CPython oficial de python.org para Android + el `yt-dlp`
-> de PyPI. La app lo instala sola en su carpeta privada
-> (`.../app_flutter/bin/ytdlp`) al arrancar, sin pasos ni avisos.
-> Detalles de construcción en `flutter/tool/android/` (script
-> `build_ytdlp_runtime.sh` + job `ytdlp-runtime` del workflow Release).
-> Solo hay runtime de 64 bits (python.org no publica CPython de 32 bits para
-> Android). En iOS el sandbox prohíbe
-> ejecutar binarios externos, así que el soporte pasa por librerías (ver
-> Roadmap).
+> En Android cada release sigue publicando el runtime CLI autocontenido
+> (`OfflineAudio-ytdlp-*.zip`): era el motor de descargas hasta v1.1.1 y hoy es
+> material de referencia; desde v1.2.0 las descargas usan el motor nativo
+> porque Android 10+ prohíbe `execve()` en el home dir de apps con
+> targetSdk ≥ 29. En iOS el sandbox prohíbe ejecutar binarios externos: las
+> descargas resuelven el stream con `youtube_explode` y lo bajan por HTTPS
+> (el stream muxed lleva `ratebypass=yes` firmado y baja completo; los
+> streams audio-only, con PO-token obligatorio, están capados a ~1 MiB).
 
 ## Búsqueda y vídeo
 
 - La **barra de búsqueda de la biblioteca** busca directamente en YouTube
   (proyecto [`youtube_explode_dart`, fijado a `3.1.0`](flutter/pubspec.yaml)).
   Teclea, pulsa Enter o la lupa y verás resultados con miniatura, título,
-  autor, duración y dos botones por resultado: **audio** (+) y **vídeo**
-  (cámara). El botón `+` descarga a **Opus**; el de cámara baja el **MP4**
-  (`yt-dlp -f bv\*+ba/b --merge-output-format mp4`), revisado con `ffprobe`
-  antes de guardarse en la biblioteca.
-- Los vídeos se reproducen desde la barra de reproducción (icono de pantalla
-  completa) con el reproductor nativo de `media_kit_video`. La búsqueda está
-  desacoplada del motor: vive en el front (`lib/src/search/youtube_search.dart`)
-  y las descargas entran por la misma tubería que las URLs del botón Añadir.
+  autor, duración y hoja de acciones por resultado: **avance de audio/vídeo**
+  y **descarga de audio/vídeo**.
+- **Avances (previews)**: suenan al toque con una cadena de resolución
+  tolerante a fallos (cliente `androidSdkless` sin PO-token → manifest
+  completo → HLS), y en iOS suenan por AVPlayer. El reintentar ante URLs
+  caducadas está integrado.
+- **Descargas** en todas las plataformas desde el menú ⋮: Opus/MP4 en
+  escritorio, motor nativo en Android, stream directo en iOS. El progreso,
+  la cancelación y los errores se ven en la pestaña Descargas con el título
+  de cada canción.
+- **iOS**: la biblioteca suena por AVPlayer (mpv no abre el audio ahí), con
+  avance automático de cola, y la Tracklist usa el mismo panel flotante
+  translúcido de macOS.
+- Los vídeos se reproducen desde la barra de reproducción con el reproductor
+  de `media_kit_video`. La búsqueda está desacoplada del motor: vive en el
+  front (`lib/src/search/youtube_search.dart`) y las descargas entran por la
+  misma tubería que las URLs del botón Añadir.
+
+## Streaming en la nube (próximo release)
+
+En **Ajustes → Almacenamiento** (o en el chip **Sync**) se activa
+**Streaming**: la preferencia ya se guarda en el motor
+(`sync.streaming_enabled`). Al activarse, la biblioteca (canciones, vídeos,
+listas de reproducción y estadísticas) se trasladará a los servidores de
+OfflineAudio Cloud para liberar el espacio del dispositivo, y la reproducción
+pasará a streaming. El traslado llega en la próxima actualización.
 
 ## Roadmap
 
+- [ ] **Streaming en OfflineAudio Cloud** — trasladar biblioteca y listas a
+      los servidores y reproducir en streaming (la preferencia ya existe;
+      el traslado llega en el próximo release).
 - [ ] **Apple Watch (reloj)** — soporte para ver y controlar el reproductor desde
       la muñeca (`voo_watch`), con estado de reproducción y cola.
-- [ ] **iOS en App Store** — la app ya se distribuye como IPA sin firmar para
-      AltStore/Sideloadly; falta el motor de descargas en el dispositivo (el
-      sandbox de iOS prohíbe ejecutar binarios externos como `yt-dlp`/`ffmpeg`,
-      así que hay que migrar a librerías: `ffmpeg-kit` + extracción sin
-      procesos hijo) y el lanzamiento oficial.
+- [ ] **iOS en App Store** — la app se distribuye como IPA sin firmar para
+      AltStore/Sideloadly y ya descarga y reproduce en el dispositivo; falta
+      firmar con cuenta de desarrollador y el lanzamiento oficial.
 - [ ] Instalador nativo de **Windows** (MSIX/NSIS; hoy se distribuye como `.zip`
       portable).
 
@@ -120,11 +136,11 @@ AltStore/Sideloadly.
 
 ## Datos
 
-- Biblioteca `.opus` + miniaturas + base de datos SQLite en el directorio de
-  configuración del usuario (macOS: `~/Library/Application Support/OfflineAudio`).
-- En Android los binarios del motor se guardan en la carpeta privada de la app
-  (`.../app_flutter`); la app los prepara sola al arrancar, sin intervención:
-  `yt-dlp` llega como runtime propio publicado en cada release.
+- Biblioteca `.opus`/`.mp4` + miniaturas + base de datos SQLite en el
+  directorio de configuración del usuario (macOS:
+  `~/Library/Application Support/OfflineAudio`; móvil: el contenedor privado
+  de la app). En iOS las rutas se reescriben sola si el sistema cambia el
+  contenedor al reinstalar.
 
 ## Legal
 
