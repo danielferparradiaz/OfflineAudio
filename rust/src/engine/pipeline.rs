@@ -124,10 +124,7 @@ pub fn start_download(engine: &AppEngine, url: String, kind: ContentKind) -> Res
                     // Permission denied"), no solo el contexto de arriba.
                     let reason = format!("{e:#}");
                     log::warn!("descarga {task_id} falló: {reason}");
-                    engine_for_task.emit(Event::DownloadFailed {
-                        task_id,
-                        reason,
-                    });
+                    engine_for_task.emit(Event::DownloadFailed { task_id, reason });
                 }
             }
         }
