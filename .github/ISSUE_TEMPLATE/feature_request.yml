@@ -1,0 +1,32 @@
+name: Idea / mejora
+description: Propón una funcionalidad o mejora
+labels: ['enhancement']
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema que resuelve
+      description: ¿Qué necesitas que hoy no es posible o es incómodo?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Propuesta
+      description: Cómo lo imaginas (comportamiento, pantallas, plataformas).
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: ¿Dónde aplicaría?
+      multiple: true
+      options:
+        - iOS
+        - Android
+        - macOS
+        - Windows
+        - Linux
+        - Todas
+    validations:
+      required: true

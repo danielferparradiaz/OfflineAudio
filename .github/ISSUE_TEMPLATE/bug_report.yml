@@ -1,0 +1,55 @@
+name: Reporte de bug
+description: Algo no funciona como debería
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: Gracias por reportar. Rellena lo máximo posible: con los logs y la plataforma es medio camino.
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Plataforma
+      options:
+        - iOS (simulador)
+        - iOS (dispositivo real)
+        - Android
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versión de la app
+      description: Ajustes → «Versión de OfflineAudio» (ej. 1.2.0)
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: Qué pasó
+      description: También qué esperabas que pasara.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Pasos para reproducir
+      placeholder: |
+        1. Buscar «…»
+        2. Tocar ⋮ → Descargar audio
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Salida del terminal con `flutter run` (si la tienes).
+      render: shell
+  - type: textarea
+    id: extra
+    attributes:
+      label: Contexto adicional
+      description: Capturas de pantalla, vídeos, enlaces…
