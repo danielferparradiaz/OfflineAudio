@@ -10,8 +10,7 @@ Stack: motor Rust (`rust/`) + UI Flutter (`flutter/`) con `flutter_rust_bridge`.
 ## Descarga
 
 Los instaladores se compilan automáticamente en GitHub Actions y se publican en
-la pestaña **[Releases](https://github.com/danielferparradiaz/OfflineAudio/releases)**
-de este repo al crear un tag `v*`.
+la pestaña **[Releases](https://github.com/danielferparradiaz/OfflineAudio/releases)**.
 
 | Dispositivo | Archivo | Cómo instalar |
 | ----------- | ------- | ------------- |
