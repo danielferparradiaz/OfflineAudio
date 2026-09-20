@@ -13,11 +13,14 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::engine::converter::{self, AudioMeta};
+use crate::engine::cookies;
 use crate::engine::downloader::{self, ytdlp_disk_args, ytdlp_stream_args};
 use crate::engine::events::Event;
 use crate::engine::models::{ContentKind, ProbeInfo, Track};
 use crate::engine::paths;
-use crate::engine::process::{child_log, null, pipe, read_stderr, sanitize_url, ytdlp_bin};
+use crate::engine::process::{
+    child_log, null, pace_ytdlp_calls, pipe, read_stderr, sanitize_url, ytdlp_bin,
+};
 use crate::engine::progress::parse_progress_line;
 use crate::engine::AppEngine;
 
@@ -69,6 +72,15 @@ pub fn cache_stem(source_id: &str) -> String {
     digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
 }
 
+/// Una sola descarga con red a la vez en todo el proceso. Las ráfagas de
+/// yt-dlp en paralelo son lo que más dispara el reto anti-bot de YouTube
+/// (tras ~10-20 peticiones seguidas); la cola espera su turno.
+static DOWNLOAD_SLOT: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+
+fn download_slot() -> &'static tokio::sync::Semaphore {
+    DOWNLOAD_SLOT.get_or_init(|| tokio::sync::Semaphore::new(1))
+}
+
 /// Start an async download task. Returns the task id; progress and the final
 /// outcome are delivered over the engine event stream.
 pub fn start_download(engine: &AppEngine, url: String, kind: ContentKind) -> Result<String> {
@@ -83,8 +95,18 @@ pub fn start_download(engine: &AppEngine, url: String, kind: ContentKind) -> Res
     let engine_for_task = engine.clone();
     tokio::spawn(async move {
         registry.register(tid_for_registry, token.clone()).await;
+        // Espera el turno (una descarga con red a la vez), cancelable.
+        let permit = tokio::select! {
+            p = download_slot().acquire() => p.expect("download slot never closes"),
+            _ = token.cancelled() => {
+                registry.unregister(&task_id).await;
+                engine_for_task.emit(Event::DownloadCancelled { task_id });
+                return;
+            }
+        };
         let result =
             run_download_catching(&engine_for_task, &task_id, url, kind, token.clone()).await;
+        drop(permit);
         registry.unregister(&task_id).await;
         match result {
             Ok(DownloadOutcome::Duplicate { track }) => {
@@ -98,9 +120,13 @@ pub fn start_download(engine: &AppEngine, url: String, kind: ContentKind) -> Res
                 if token.is_cancelled() {
                     engine_for_task.emit(Event::DownloadCancelled { task_id });
                 } else {
+                    // `{:#}` incluye la cadena de causas (p. ej. "no arranca:
+                    // Permission denied"), no solo el contexto de arriba.
+                    let reason = format!("{e:#}");
+                    log::warn!("descarga {task_id} falló: {reason}");
                     engine_for_task.emit(Event::DownloadFailed {
                         task_id,
-                        reason: e.to_string(),
+                        reason,
                     });
                 }
             }
@@ -146,6 +172,45 @@ async fn run_download(
     kind: ContentKind,
     token: CancellationToken,
 ) -> Result<DownloadOutcome> {
+    // Intento inicial + reintentos con backoff ante el reto anti-bot de
+    // YouTube: suele ser un rate-limit temporal por ráfagas y esperar lo
+    // cura. Solo se reintenta el BotChallenge; el resto falla directo.
+    // La espera es cancelable y avisa por el banner de info.
+    let mut attempt: usize = 0;
+    loop {
+        match run_download_once(engine, task_id, url.clone(), kind.clone(), token.clone()).await {
+            Ok(outcome) => return Ok(outcome),
+            Err(e) => {
+                let is_bot =
+                    cookies::classify(&e.to_string()) == cookies::YtDlpFailure::BotChallenge;
+                if !is_bot || attempt >= BOT_RETRY_DELAYS_SECS.len() || token.is_cancelled() {
+                    return Err(e);
+                }
+                let wait = BOT_RETRY_DELAYS_SECS[attempt];
+                attempt += 1;
+                engine.emit(Event::Notify {
+                    kind: "download-retry".to_string(),
+                    message: format!("YouTube limitó el ritmo, reintentando en {wait}s…"),
+                });
+                tokio::select! {
+                    _ = token.cancelled() => bail!("descarga cancelada"),
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(wait)) => {}
+                }
+            }
+        }
+    }
+}
+
+/// Esperas entre reintentos anti-bot (30s, 2min, 5min).
+const BOT_RETRY_DELAYS_SECS: [u64; 3] = [30, 120, 300];
+
+async fn run_download_once(
+    engine: &AppEngine,
+    task_id: &str,
+    url: String,
+    kind: ContentKind,
+    token: CancellationToken,
+) -> Result<DownloadOutcome> {
     // El usuario nunca prepara nada: si falta algún binario se descarga
     // solo aquí antes de empezar (barato si ya están).
     crate::api::engine_api::ensure_engine_binaries()
@@ -154,7 +219,10 @@ async fn run_download(
             "No se pudo preparar el motor de descargas. \
              Comprueba tu conexión; se reintentará solo.",
         )?;
-    let probe = downloader::probe(&url).await?;
+    // Cookies de YouTube: una sola resolución por descarga; el struct viaja
+    // tal cual a probe y estrategias (ver `cookies::ResolvedCookies`).
+    let cookies = cookies::resolve_for_db(&engine.db).await;
+    let probe = downloader::probe(&url, &cookies).await?;
 
     if let Some(existing) = engine.db.find_track_by_source(&probe.source_id).await? {
         return Ok(DownloadOutcome::Duplicate {
@@ -163,21 +231,23 @@ async fn run_download(
     }
 
     if kind.is_video() {
-        run_video_download(engine, task_id, &url, &probe, token).await?;
+        run_video_download(engine, task_id, &url, &probe, &cookies, token).await?;
     } else {
-        run_audio_download(engine, task_id, &url, &kind, &probe, token).await?;
+        run_audio_download(engine, task_id, &url, &kind, &probe, &cookies, token).await?;
     }
     Ok(DownloadOutcome::Done)
 }
 
 /// Audio path: stream (strategy A) with disk-based fallback (strategy B),
 /// transcode to Opus and persist.
+#[allow(clippy::too_many_arguments)]
 async fn run_audio_download(
     engine: &AppEngine,
     task_id: &str,
     url: &str,
     kind: &ContentKind,
     probe: &ProbeInfo,
+    cookies: &cookies::ResolvedCookies,
     token: CancellationToken,
 ) -> Result<()> {
     // Rough space estimate: duration * audio bitrate + margin.
@@ -201,10 +271,30 @@ async fn run_audio_download(
         album: probe.album.clone(),
     };
 
-    let mut res = strategy_stream(engine, task_id, url, kind, &output, &meta, token.clone()).await;
+    let mut res = strategy_stream(
+        engine,
+        task_id,
+        url,
+        kind,
+        &output,
+        &meta,
+        cookies,
+        token.clone(),
+    )
+    .await;
     if res.is_err() {
         std::fs::remove_file(&output).ok();
-        res = strategy_disk(engine, task_id, url, kind, &output, &meta, token.clone()).await;
+        res = strategy_disk(
+            engine,
+            task_id,
+            url,
+            kind,
+            &output,
+            &meta,
+            cookies,
+            token.clone(),
+        )
+        .await;
     }
     res?;
 
@@ -240,11 +330,13 @@ async fn run_audio_download(
 
 /// Video path: yt-dlp muxes best video+audio into an `.mp4` (no ffmpeg
 /// transcode), stored raw in the cache, and persists a video Track.
+#[allow(clippy::too_many_arguments)]
 async fn run_video_download(
     engine: &AppEngine,
     task_id: &str,
     url: &str,
     probe: &ProbeInfo,
+    cookies: &cookies::ResolvedCookies,
     token: CancellationToken,
 ) -> Result<()> {
     // Disk estimate: prefer the probed size, else duration * rough bitrate.
@@ -263,7 +355,7 @@ async fn run_video_download(
 
     let stem = cache_stem(&probe.source_id);
     let output = engine.cache_dir.join(format!("{stem}.mp4"));
-    ytdlp_download_to_file(engine, task_id, url, &output, token).await?;
+    ytdlp_download_to_file(engine, task_id, url, &output, cookies, token).await?;
 
     let size = converter::validate_media(&output).await?;
     if size == 0 {
@@ -308,11 +400,13 @@ async fn persist_track(engine: &AppEngine, task_id: &str, track: &Track) -> Resu
 
 /// Download one media file with yt-dlp to a temp file (progress + cancel),
 /// then move it into the cache at `output`. Used by the video path.
+#[allow(clippy::too_many_arguments)]
 async fn ytdlp_download_to_file(
     engine: &AppEngine,
     task_id: &str,
     url: &str,
     output: &Path,
+    cookies: &cookies::ResolvedCookies,
     token: CancellationToken,
 ) -> Result<()> {
     let keyword = format!("dl_{}", Uuid::new_v4().simple());
@@ -322,9 +416,68 @@ async fn ytdlp_download_to_file(
         "Motor de descargas no disponible todavía. \
          Se está preparando solo; inténtalo de nuevo en un momento.",
     )?;
-    let args = downloader::ytdlp_video_args(url, &pattern.to_string_lossy());
+    // Reintento sin cookies si la extracción falló (DB inexistente, perfil
+    // bloqueado, TCC de macOS): el vídeo público sale sin login.
+    let attempts: Vec<cookies::ResolvedCookies> = if cookies.has_cookies() {
+        vec![cookies.clone(), cookies::ResolvedCookies::none()]
+    } else {
+        vec![cookies::ResolvedCookies::none()]
+    };
+    let mut last_tail = String::new();
+    for (i, attempt) in attempts.iter().enumerate() {
+        let args = downloader::ytdlp_video_args(url, &pattern.to_string_lossy(), attempt);
+        match run_ytdlp_to_pattern(engine, task_id, &bin, &args, &keyword, &token).await {
+            Ok(input) => {
+                return move_tmp_into_place(&input, output);
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                if i == 0
+                    && attempt.has_cookies()
+                    && cookies::classify(&msg) == cookies::YtDlpFailure::CookieExtraction
+                {
+                    last_tail = msg;
+                    continue;
+                }
+                if cookies::classify(&msg) != cookies::YtDlpFailure::Other {
+                    bail!(
+                        "{}",
+                        cookies::friendly_message(
+                            cookies::classify(&msg),
+                            attempt.browser_used(),
+                            &msg
+                        )
+                    );
+                }
+                return Err(e);
+            }
+        }
+    }
+    bail!(
+        "{}",
+        cookies::friendly_message(
+            cookies::YtDlpFailure::CookieExtraction,
+            cookies.browser_used(),
+            &last_tail,
+        )
+    );
+}
 
-    let mut yt = child_log(&bin, &to_refs(&args), null(), null(), pipe()).spawn()?;
+/// Ejecuta yt-dlp una vez hacia el `pattern` y devuelve la ruta del archivo
+/// descargado (validado no vacío). El progreso se emite igual que antes.
+/// El error conserva el tail crudo para que quien llama lo clasifique
+/// (bot / extracción / otro).
+async fn run_ytdlp_to_pattern(
+    engine: &AppEngine,
+    task_id: &str,
+    bin: &std::path::Path,
+    args: &[String],
+    keyword: &str,
+    token: &CancellationToken,
+) -> Result<PathBuf> {
+    // Ritmo global anti-bloqueo antes de spawnear yt-dlp.
+    pace_ytdlp_calls().await;
+    let mut yt = child_log(bin, &to_refs(args), null(), null(), pipe()).spawn()?;
     let yt_stderr = yt.stderr.take().context("sin stderr de yt-dlp")?;
     let tx = engine.event_tx.clone();
     let tid = task_id.to_string();
@@ -360,27 +513,41 @@ async fn ytdlp_download_to_file(
         bail!("yt-dlp falló al descargar:\n{}", tail_trim(&yt_tail));
     }
 
-    let input = converter::find_tmp_download(&engine.tmp_dir, &keyword)
+    let input = converter::find_tmp_download(&engine.tmp_dir, keyword)
         .map_err(|e| anyhow::anyhow!("{e}\n{yt_tail}"))?;
     if std::fs::metadata(&input)
         .map(|m| m.len() > 0)
         .unwrap_or(false)
     {
-        match std::fs::rename(&input, output) {
-            Ok(_) => {}
-            Err(_) => {
-                std::fs::copy(&input, output)?;
-                std::fs::remove_file(&input).ok();
-            }
-        }
+        Ok(input)
     } else {
         std::fs::remove_file(&input).ok();
         bail!("yt-dlp no generó contenido de vídeo");
     }
-    Ok(())
+}
+
+/// Mueve el tmp descargado a su sitio final (rename o copy+delete).
+fn move_tmp_into_place(input: &Path, output: &Path) -> Result<()> {
+    if std::fs::metadata(input)
+        .map(|m| m.len() > 0)
+        .unwrap_or(false)
+    {
+        match std::fs::rename(input, output) {
+            Ok(()) => Ok(()),
+            Err(_) => {
+                std::fs::copy(input, output)?;
+                std::fs::remove_file(input).ok();
+                Ok(())
+            }
+        }
+    } else {
+        std::fs::remove_file(input).ok();
+        bail!("yt-dlp no generó contenido de vídeo");
+    }
 }
 
 /// Strategy A: stream yt-dlp stdout directly into ffmpeg stdin.
+#[allow(clippy::too_many_arguments)]
 async fn strategy_stream(
     engine: &AppEngine,
     task_id: &str,
@@ -388,13 +555,16 @@ async fn strategy_stream(
     kind: &ContentKind,
     output: &Path,
     meta: &AudioMeta,
+    cookies: &cookies::ResolvedCookies,
     token: CancellationToken,
 ) -> Result<()> {
     let bin = ytdlp_bin().context(
         "Motor de descargas no disponible todavía. \
          Se está preparando solo; inténtalo de nuevo en un momento.",
     )?;
-    let args = ytdlp_stream_args(url);
+    let args = ytdlp_stream_args(url, cookies);
+    // Ritmo global anti-bloqueo antes de spawnear yt-dlp.
+    pace_ytdlp_calls().await;
     let mut yt = child_log(&bin, &to_refs(&args), null(), pipe(), pipe()).spawn()?;
     let mut ff = converter::convert_from_stdin(kind, output, meta)?
         .stdin(pipe())
@@ -402,17 +572,19 @@ async fn strategy_stream(
         .stderr(pipe())
         .spawn()?;
 
-    run_stream_pair(engine, task_id, &mut yt, &mut ff, output, token).await
+    run_stream_pair(engine, task_id, &mut yt, &mut ff, output, cookies, token).await
 }
 
 /// Pipe two children together (yt-dlp stdout -> ffmpeg stdin), streaming
 /// yt-dlp progress to the event bus, with cancellation support.
+#[allow(clippy::too_many_arguments)]
 async fn run_stream_pair(
     engine: &AppEngine,
     task_id: &str,
     yt: &mut Child,
     ff: &mut Child,
     output: &Path,
+    cookies: &cookies::ResolvedCookies,
     token: CancellationToken,
 ) -> Result<()> {
     let mut yt_stdout = yt.stdout.take().context("sin stdout de yt-dlp")?;
@@ -473,12 +645,22 @@ async fn run_stream_pair(
     let _ = tx;
     let yt_status = yt.wait().await?;
     let ff_status = ff.wait().await?;
-    let _ = yt_err.await;
+    let yt_tail = yt_err.await.unwrap_or_default();
     let ff_tail = ff_err.await.unwrap_or_default();
 
     let yt_ok = yt_status.success();
     let ff_ok = ff_status.success();
     let size = std::fs::metadata(output).ok().map(|m| m.len()).unwrap_or(0);
+    // Fallo de yt-dlp ya clasificado y en español; el resto conserva el tail.
+    // (Si fue extracción, `run_audio_download` cae a disco, que reintenta
+    // sin cookies antes de rendirse.)
+    match cookies::classify(&yt_tail) {
+        cookies::YtDlpFailure::Other => {}
+        failure => bail!(
+            "{}",
+            cookies::friendly_message(failure, cookies.browser_used(), &yt_tail)
+        ),
+    }
     if !yt_ok || !ff_ok || size == 0 {
         bail!(
             "la descarga/conversión falló (yt-dlp={yt_ok} ffmpeg={ff_ok} bytes={size})\n{}",
@@ -490,6 +672,7 @@ async fn run_stream_pair(
 
 /// Strategy B: yt-dlp to a temp file, then ffmpeg from file. Used when the
 /// extractor cannot stream to stdout or streaming produced invalid output.
+#[allow(clippy::too_many_arguments)]
 async fn strategy_disk(
     engine: &AppEngine,
     task_id: &str,
@@ -497,6 +680,7 @@ async fn strategy_disk(
     kind: &ContentKind,
     output: &Path,
     meta: &AudioMeta,
+    cookies: &cookies::ResolvedCookies,
     token: CancellationToken,
 ) -> Result<()> {
     let keyword = format!("dl_{}", Uuid::new_v4().simple());
@@ -506,46 +690,57 @@ async fn strategy_disk(
         "Motor de descargas no disponible todavía. \
          Se está preparando solo; inténtalo de nuevo en un momento.",
     )?;
-    let args = ytdlp_disk_args(url, &pattern.to_string_lossy());
 
-    let mut yt = child_log(&bin, &to_refs(&args), null(), null(), pipe()).spawn()?;
-    let yt_stderr = yt.stderr.take().context("sin stderr de yt-dlp")?;
-    let tx = engine.event_tx.clone();
-    let tid = task_id.to_string();
-    let yt_err = tokio::spawn(async move {
-        read_stderr(
-            Box::new(yt_stderr),
-            300,
-            Some(move |line: &str| {
-                if let Some(p) = parse_progress_line(line) {
-                    let _ = tx.send(Event::DownloadProgress {
-                        task_id: tid.clone(),
-                        percent: p.percent,
-                        downloaded_bytes: p.downloaded_bytes,
-                        total_bytes: p.total_bytes,
-                        speed_bytes_sec: p.speed_bytes_sec,
-                        eta_secs: p.eta_secs,
-                    });
-                }
-            }),
-        )
-        .await
-    });
-
-    let yt_status = tokio::select! {
-        _ = token.cancelled() => {
-            let _ = yt.kill().await;
-            bail!("descarga cancelada")
-        }
-        s = yt.wait() => s?
+    // Misma política que el vídeo: si la extracción de cookies falla se
+    // reintenta una vez sin cookies antes de rendirse.
+    let attempts: Vec<cookies::ResolvedCookies> = if cookies.has_cookies() {
+        vec![cookies.clone(), cookies::ResolvedCookies::none()]
+    } else {
+        vec![cookies::ResolvedCookies::none()]
     };
-    let yt_tail = yt_err.await.unwrap_or_default();
-    if !yt_status.success() {
-        bail!("yt-dlp falló al descargar:\n{}", tail_trim(&yt_tail));
+    let mut last_tail = String::new();
+    let mut input: Option<PathBuf> = None;
+    for (i, attempt) in attempts.iter().enumerate() {
+        let args = ytdlp_disk_args(url, &pattern.to_string_lossy(), attempt);
+        match run_ytdlp_to_pattern(engine, task_id, &bin, &args, &keyword, &token).await {
+            Ok(p) => {
+                input = Some(p);
+                break;
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                if i == 0
+                    && attempt.has_cookies()
+                    && cookies::classify(&msg) == cookies::YtDlpFailure::CookieExtraction
+                {
+                    last_tail = msg;
+                    continue;
+                }
+                if cookies::classify(&msg) != cookies::YtDlpFailure::Other {
+                    bail!(
+                        "{}",
+                        cookies::friendly_message(
+                            cookies::classify(&msg),
+                            attempt.browser_used(),
+                            &msg
+                        )
+                    );
+                }
+                return Err(e);
+            }
+        }
     }
-
-    let input = converter::find_tmp_download(&engine.tmp_dir, &keyword)
-        .map_err(|e| anyhow::anyhow!("{e}\n{yt_tail}"))?;
+    let input = match input {
+        Some(p) => p,
+        None => bail!(
+            "{}",
+            cookies::friendly_message(
+                cookies::YtDlpFailure::CookieExtraction,
+                cookies.browser_used(),
+                &last_tail,
+            )
+        ),
+    };
 
     let mut ff = converter::convert_from_file(kind, &input, output, meta)?
         .stdin(null())

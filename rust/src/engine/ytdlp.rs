@@ -8,8 +8,11 @@ use crate::engine::AppEngine;
 use crate::engine::{SETTING_YTDLP_CHECKED_AT, SETTING_YTDLP_VERSION};
 
 /// Minimum acceptable yt-dlp version (yyyy.mm.dd). yt-dlp breaks often; pin a
-/// floor and surface updates rather than guessing.
-pub const MIN_YTDLP_VERSION: &str = "2025.10.01";
+/// floor and surface updates rather than guessing. Se mantiene sincronizado
+/// con el runtime que publica este repo (`YTDLP_RUNTIME_YTDLP_VERSION`): el
+/// extractor de YouTube cambia cada pocas semanas y un binario viejo es la
+/// primera causa del reto anti-bot.
+pub const MIN_YTDLP_VERSION: &str = "2026.08.19";
 
 type Version = (u32, u32, u32);
 
@@ -144,8 +147,8 @@ mod tests {
         assert_eq!(parse_version("2025.12.31"), Some((2025, 12, 31)));
         assert!(parse_version("garbage").is_none());
         assert!(!is_outdated("2026.08.19"));
-        assert!(!is_outdated("2025.10.01"));
-        assert!(is_outdated("2025.09.30"));
-        assert!(is_outdated("2024.01.01"));
+        assert!(!is_outdated("2026.09.01"));
+        assert!(is_outdated("2026.08.18"));
+        assert!(is_outdated("2025.10.01"));
     }
 }

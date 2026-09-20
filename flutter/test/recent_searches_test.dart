@@ -38,4 +38,47 @@ void main() {
     expect(find.text('Búsquedas recientes'), findsOneWidget);
     expect(find.text('salsa queen astoria'), findsOneWidget);
   });
+
+  testWidgets('Keyboard selection moves and confirms history', (tester) async {
+    final key = GlobalKey<RecentSearchesState>();
+    await tester.pumpWidget(
+      AppModelProvider(
+        model: _FakeModel(),
+        child: MaterialApp(
+          home: Scaffold(
+            body: RecentSearches(
+              key: key,
+              source: 'youtube',
+              onTap: (q) {},
+              onDelete: (e) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final state = key.currentState!;
+    expect(state.navItemCount, 1);
+    expect(state.hasNavSelection, isFalse);
+    expect(state.confirmSelection(), isNull);
+
+    // Sin ítems no hace nada; con uno, abajo entra al primero.
+    state.moveSelection(1);
+    await tester.pump();
+    expect(state.hasNavSelection, isTrue);
+    expect(state.confirmSelection(), 'salsa queen astoria');
+    // Resaltado visible en la lista.
+    expect(find.text('↑↓ navegar · Enter buscar'), findsOneWidget);
+
+    // Arriba desde el primero vuelve al campo (sin selección).
+    state.moveSelection(-1);
+    await tester.pump();
+    expect(state.hasNavSelection, isFalse);
+
+    state.moveSelection(1);
+    await tester.pump();
+    state.clearSelection();
+    await tester.pump();
+    expect(state.hasNavSelection, isFalse);
+  });
 }

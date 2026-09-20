@@ -26,9 +26,28 @@ fn engine_ref() -> &'static AppEngine {
 /// workers. Called explicitly from Dart after `RustLib.init()` (and after
 /// `set_app_dir()` on mobile) — NOT auto-run, so the app dir override lands
 /// before the engine touches the filesystem.
+/// Instala el logging una sola vez. `setup_default_user_utils()` deja
+/// android_logger en Trace (hyper/rustls/sqlx inundan logcat), así que aquí
+/// se usa `setup_log_to_console(Warn)`: primera inicialización gana.
+fn init_logging() {
+    flutter_rust_bridge::setup_backtrace();
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    flutter_rust_bridge::setup_log_to_console(log::LevelFilter::Warn);
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let _ = env_logger::Builder::new()
+            .filter_level(log::LevelFilter::Info)
+            .filter_module("hyper", log::LevelFilter::Warn)
+            .filter_module("rustls", log::LevelFilter::Warn)
+            .filter_module("reqwest", log::LevelFilter::Warn)
+            .filter_module("sqlx", log::LevelFilter::Warn)
+            .try_init();
+    }
+}
+
 #[flutter_rust_bridge::frb]
 pub async fn init_app() -> Result<()> {
-    flutter_rust_bridge::setup_default_user_utils();
+    init_logging();
     if ENGINE.get().is_some() {
         return Ok(());
     }
@@ -39,7 +58,10 @@ pub async fn init_app() -> Result<()> {
     // segundo plano (binarios integrados en el release o descarga silenciosa
     // la primera vez) y el check de versión llega después, ya con motor.
     tokio::spawn(async move {
-        let _ = ensure_engine_binaries().await;
+        match ensure_engine_binaries().await {
+            Ok(()) => log::warn!("motor de descargas listo"),
+            Err(e) => log::warn!("motor de descargas no disponible: {e:#}"),
+        }
         let engine = engine_ref().clone();
         let _ = crate::engine::ytdlp::check_and_update(&engine).await;
     });
@@ -51,7 +73,19 @@ pub async fn init_app() -> Result<()> {
 /// Query metadata for a URL without downloading anything.
 #[flutter_rust_bridge::frb]
 pub async fn probe_url(url: String) -> Result<ProbeInfo> {
-    crate::engine::downloader::probe(&url).await
+    let cookies = crate::engine::cookies::resolve_for_db(&engine_ref().db).await;
+    crate::engine::downloader::probe(&url, &cookies).await
+}
+
+/// Resolve a direct stream URL for previewing a result without downloading.
+/// Fallback path when the Dart library cannot fetch the manifest: yt-dlp
+/// handles restricted videos and newer ciphers that break it. `video` picks
+/// the progressive file selection, otherwise best audio.
+#[flutter_rust_bridge::frb]
+pub async fn preview_stream_url(url: String, video: bool) -> Result<String> {
+    ensure_engine_binaries().await?;
+    let cookies = crate::engine::cookies::resolve_for_db(&engine_ref().db).await;
+    crate::engine::downloader::stream_url(&url, video, &cookies).await
 }
 
 /// Start a download+convert task. Returns a task id; progress and result are
@@ -59,6 +93,19 @@ pub async fn probe_url(url: String) -> Result<ProbeInfo> {
 #[flutter_rust_bridge::frb]
 pub async fn start_download(url: String, kind: ContentKind) -> Result<String> {
     pipeline::start_download(engine_ref(), url, kind)
+}
+
+/// Persist a media file downloaded by a platform-native backend.
+///
+/// Android uses youtubedl-android/ffmpeg-kit because Android 10+ blocks
+/// executing the CLI runtime from the writable app directory. Dart owns the
+/// native task lifecycle and sends the finished Track back here for storage.
+#[flutter_rust_bridge::frb]
+pub async fn persist_external_track(track: Track) -> Result<()> {
+    let engine = engine_ref();
+    engine.db.upsert_track(&track).await?;
+    engine.emit(Event::LibraryChanged);
+    Ok(())
 }
 
 /// Cancel a running download task.
@@ -222,6 +269,47 @@ pub async fn app_dirs() -> Result<AppDirs> {
         thumbs: engine.thumbs_dir.to_string_lossy().to_string(),
         tmp: engine.tmp_dir.to_string_lossy().to_string(),
     })
+}
+
+/// Resumen de uso para Ajustes: nº de canciones en la biblioteca y bytes
+/// totales en disco (audios + miniaturas + temporales). La UI no expone
+/// rutas: solo esta cifra amigable.
+#[derive(Serialize, Deserialize)]
+pub struct StorageUsage {
+    pub track_count: i64,
+    pub total_bytes: u64,
+}
+
+#[flutter_rust_bridge::frb]
+pub async fn storage_usage() -> Result<StorageUsage> {
+    let engine = engine_ref();
+    let track_count = engine.db.track_count().await?;
+    let mut total = 0u64;
+    for dir in [&engine.cache_dir, &engine.thumbs_dir, &engine.tmp_dir] {
+        total = total.saturating_add(dir_size(dir));
+    }
+    Ok(StorageUsage {
+        track_count,
+        total_bytes: total,
+    })
+}
+
+/// Suma recursiva del tamaño de un directorio; los errores se ignoran (un
+/// fichero que desaparece a mitad de paseo no rompe el resumen).
+fn dir_size(dir: &std::path::Path) -> u64 {
+    let mut total = 0u64;
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            total = total.saturating_add(dir_size(&path));
+        } else if let Ok(meta) = entry.metadata() {
+            total = total.saturating_add(meta.len());
+        }
+    }
+    total
 }
 
 // ---- yt-dlp -------------------------------------------------------------

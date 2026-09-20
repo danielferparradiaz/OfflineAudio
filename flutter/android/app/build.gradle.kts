@@ -58,7 +58,10 @@ android {
     defaultConfig {
         applicationId = "com.offlineaudio.app"
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        // targetSdk 36 (Requerido Play Store). El motor usa youtubedl-android +
+        // ffmpeg-kit que manejan la ejecución interna, evitando la restricción
+        // W^X de execve() en el directorio privado de Android 10+.
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -74,7 +77,19 @@ android {
     packagingOptions {
         jniLibs {
             useLegacyPackaging = true
+            // youtubedl-android empaqueta Python como `libpython.zip.so`
+            // (zip renombrado para que el APK lo trate como lib nativa).
+            // AGP intenta strip-earlo y falla: lo excluimos.
+            keepDebugSymbols += listOf(
+                "**/libpython.zip.so",
+            )
         }
+    }
+
+    // targetSdk 28 es deliberado (ver defaultConfig): lint lo marca como
+    // caducado por la política de Play, que no aplica a esta app sideload.
+    lint {
+        disable += "ExpiredTargetSdkVersion"
     }
 
     signingConfigs {
@@ -95,6 +110,11 @@ android {
         release {
             val release = signingConfigs.getByName("release")
             signingConfig = if (release.storeFile != null) release else signingConfigs.getByName("debug")
+            // R8 minificación deshabilitada: ffmpeg-kit y youtubedl-android
+            // usan reflexión JNI y requieren reglas keep complejas. Para uso
+            // sideload sin Play, el tamaño del APK no es crítico.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
@@ -103,6 +123,15 @@ kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
+}
+
+// youtubedl-android (GPL-3.0) provee Python + yt-dlp embebidos como libs
+// nativas, permitiendo ejecución in-process compatible con targetSdk >= 29.
+// ffmpeg-kit maintained fork (LGPL-3.0) reemplaza al arthenica original
+// (archivado julio 2026) con la misma API drop-in.
+dependencies {
+    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
+    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7")
 }
 
 flutter {

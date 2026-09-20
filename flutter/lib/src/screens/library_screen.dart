@@ -15,15 +15,45 @@ import 'package:offline_audio_app/src/widgets/widgets.dart';
 /// mismo aspecto que el de Descargas pero solo filtra la biblioteca local
 /// (no hace búsquedas de YouTube ni descargas).
 class LibraryScreen extends StatefulWidget {
-  const LibraryScreen({super.key});
+  const LibraryScreen({super.key, this.settingsReturnTick = 0});
+
+  /// Contador que el shell de macOS incrementa al volver de Ajustes
+  /// (dirección Ajustes → Biblioteca). Cada cambio dispara un pop sutil en
+  /// el buscador, aprovechando el efecto cubo de la transición.
+  final int settingsReturnTick;
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
 }
 
-class _LibraryScreenState extends State<LibraryScreen> {
+class _LibraryScreenState extends State<LibraryScreen>
+    with SingleTickerProviderStateMixin {
   final SortOrder _order = SortOrder.dateDesc;
   final _searchController = TextEditingController();
+
+  /// Pop sutil del buscador al volver de Ajustes en macOS: encoge a 0.965
+  /// y vuelve a 1 con un leve overshoot. Transform sin layout: no mueve nada.
+  late final AnimationController _popController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 260),
+  );
+  late final Animation<double> _popScale =
+      TweenSequence<double>([
+        TweenSequenceItem(
+          tween: Tween(
+            begin: 1.0,
+            end: 0.965,
+          ).chain(CurveTween(curve: Curves.easeOut)),
+          weight: 35,
+        ),
+        TweenSequenceItem(
+          tween: Tween(
+            begin: 0.965,
+            end: 1.0,
+          ).chain(CurveTween(curve: Curves.easeOutBack)),
+          weight: 65,
+        ),
+      ]).animate(_popController);
 
   /// Búsqueda local en curso / consulta activa en la biblioteca.
   bool _searching = false;
@@ -35,10 +65,27 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   void dispose() {
+    _popController.dispose();
     _searchController.dispose();
     _listFocusNode.dispose();
     _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant LibraryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Solo macOS y solo al volver de Ajustes: el shell sube el tick.
+    // Se agenda post-frame para que el pop corra cuando la transición
+    // del pop de la ruta ya terminó y el buscador está visible; si se
+    // dispara en el mismo frame del pop, la animación queda tapada.
+    if (widget.settingsReturnTick != oldWidget.settingsReturnTick &&
+        isMacOSPlatform &&
+        mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _popController.forward(from: 0);
+      });
+    }
   }
 
   /// Vuelve a mostrar la biblioteca completa (sin filtro de búsqueda).
@@ -244,9 +291,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // En Apple solo el buscador (los ajustes están en el sidebar).
-              // En Material, buscador y acceso a ajustes en la misma fila.
-              if (isApplePlatform)
+              // En macOS solo el buscador (los ajustes están en el sidebar).
+              // En iOS y Material, buscador y acceso a ajustes en la misma fila.
+              if (isMacOSPlatform)
                 _buildSearchField(context)
               else
                 Padding(
@@ -256,8 +303,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       Expanded(child: _searchField(context)),
                       Builder(
                         builder: (context) => IconButton(
-                          onPressed: () =>
-                              Scaffold.of(context).openEndDrawer(),
+                          onPressed: () {
+                            // iOS no tiene drawer: se abre Ajustes con push,
+                            // igual que hace el sidebar en macOS.
+                            if (isIOSPlatform) {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const SettingsScreen(),
+                                ),
+                              );
+                            } else {
+                              Scaffold.of(context).openEndDrawer();
+                            }
+                          },
                           tooltip: 'Ajustes',
                           icon: HugeIcon(
                             icon: HugeIcons.strokeRoundedSettings01,
@@ -278,21 +336,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Widget _buildSearchField(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, isApplePlatform ? 12 : 4, 16, 10),
+      padding: EdgeInsets.fromLTRB(16, isMacOSPlatform ? 12 : 4, 16, 10),
       child: _searchField(context),
     );
   }
 
   Widget _searchField(BuildContext context) {
-    return AppSearchField(
-      controller: _searchController,
-      focusNode: _searchFocusNode,
-      onSearch: _searchNow,
-      onChanged: (value) {
-        // La X del buscador está vaciando el campo: si estábamos viendo
-        // resultados, volvemos a la biblioteca completa.
-        if (value.isEmpty && _activeQuery != null) _serveLibrary();
-      },
+    return AnimatedBuilder(
+      animation: _popScale,
+      builder: (context, child) => Transform.scale(
+        scale: _popScale.value,
+        alignment: Alignment.center,
+        child: child,
+      ),
+      child: AppSearchField(
+        controller: _searchController,
+        focusNode: _searchFocusNode,
+        onSearch: _searchNow,
+        onChanged: (value) {
+          // La X del buscador está vaciando el campo: si estábamos viendo
+          // resultados, volvemos a la biblioteca completa.
+          if (value.isEmpty && _activeQuery != null) _serveLibrary();
+        },
+      ),
     );
   }
 

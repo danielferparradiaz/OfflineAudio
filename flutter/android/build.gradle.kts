@@ -2,6 +2,10 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // youtubedl-android publica en Maven Central bajo
+        // io.github.junkfood02.youtubedl-android; JitPack queda como fallback
+        // por si alguna release se retrasa.
+        maven { url = uri("https://jitpack.io") }
     }
 }
 

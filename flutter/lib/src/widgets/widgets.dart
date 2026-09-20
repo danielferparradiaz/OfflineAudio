@@ -12,5 +12,6 @@ export 'search_feedback.dart';
 export 'search_result_tile.dart';
 export 'section_header.dart';
 export 'settings_drawer.dart';
+export 'storage_summary_tile.dart';
 export 'thumb_placeholder.dart';
 export 'track_tile.dart';

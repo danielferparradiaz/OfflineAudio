@@ -105,6 +105,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SortOrder dco_decode_sort_order(dynamic raw);
 
   @protected
+  StorageUsage dco_decode_storage_usage(dynamic raw);
+
+  @protected
   Track dco_decode_track(dynamic raw);
 
   @protected
@@ -205,6 +208,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SortOrder sse_decode_sort_order(SseDeserializer deserializer);
+
+  @protected
+  StorageUsage sse_decode_storage_usage(SseDeserializer deserializer);
 
   @protected
   Track sse_decode_track(SseDeserializer deserializer);
@@ -325,6 +331,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_sort_order(SortOrder self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_storage_usage(StorageUsage self, SseSerializer serializer);
 
   @protected
   void sse_encode_track(Track self, SseSerializer serializer);

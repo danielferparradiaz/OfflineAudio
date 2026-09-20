@@ -18,8 +18,30 @@ String _fmtClock(Duration d) {
 
 /// Compact player bar shown above the bottom nav while a track is loaded.
 /// Includes title/artist, seek slider and prev/next controls.
-class PlayerBar extends StatelessWidget {
+///
+/// El slider NO busca mientras se arrastra: el track sigue sonando normal y
+/// solo al soltar se salta a la posición elegida. Así se evita el
+/// tartamudeo de adelantar/retroceder durante el arrastre.
+class PlayerBar extends StatefulWidget {
   const PlayerBar({super.key});
+
+  @override
+  State<PlayerBar> createState() => _PlayerBarState();
+}
+
+class _PlayerBarState extends State<PlayerBar> {
+  /// Posición arrastrada en ms mientras el dedo está sobre el slider.
+  /// `null` cuando no se arrastra: el slider sigue a la reproducción.
+  double? _dragMs;
+
+  void _onDragStart(double v) => setState(() => _dragMs = v);
+
+  void _onDragging(double v) => setState(() => _dragMs = v);
+
+  Future<void> _onDragEnd(double v, AppModel model) async {
+    setState(() => _dragMs = null);
+    await model.seek(Duration(milliseconds: v.toInt()));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -100,6 +122,13 @@ class PlayerBar extends StatelessWidget {
     final posMs = position.inMilliseconds
         .clamp(0, duration.inMilliseconds)
         .toDouble();
+    // Mientras se arrastra se muestra la posición del dedo, pero la
+    // reproducción sigue su curso hasta que se suelta.
+    final shownMs = _dragMs ?? posMs;
+    final shownPosition = _dragMs != null
+        ? Duration(milliseconds: _dragMs!.toInt())
+        : position;
+    final canSeek = duration.inMilliseconds > 0;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 4, 8, 4),
@@ -170,6 +199,8 @@ class PlayerBar extends StatelessWidget {
                           builder: (_) => PreviewVideoScreen(
                             url: url,
                             title: model.previewTitle ?? 'Avance',
+                            id: model.previewId,
+                            artist: model.previewArtist,
                           ),
                         ),
                       );
@@ -209,7 +240,7 @@ class PlayerBar extends StatelessWidget {
               SizedBox(
                 width: 46,
                 child: Text(
-                  _fmtClock(position),
+                  _fmtClock(shownPosition),
                   style: TextStyle(color: subtle, fontSize: 11),
                 ),
               ),
@@ -218,20 +249,22 @@ class PlayerBar extends StatelessWidget {
                     ? CupertinoSlider(
                         min: 0,
                         max: maxMs,
-                        value: duration.inMilliseconds > 0 ? posMs : 0,
+                        value: canSeek ? shownMs : 0,
                         activeColor: scheme.primary,
-                        onChanged: duration.inMilliseconds > 0
-                            ? (v) =>
-                                  model.seek(Duration(milliseconds: v.toInt()))
+                        onChangeStart: canSeek ? _onDragStart : null,
+                        onChanged: canSeek ? _onDragging : null,
+                        onChangeEnd: canSeek
+                            ? (v) => _onDragEnd(v, model)
                             : null,
                       )
                     : Slider(
                         min: 0,
                         max: maxMs,
-                        value: duration.inMilliseconds > 0 ? posMs : 0,
-                        onChanged: duration.inMilliseconds > 0
-                            ? (v) =>
-                                  model.seek(Duration(milliseconds: v.toInt()))
+                        value: canSeek ? shownMs : 0,
+                        onChangeStart: canSeek ? _onDragStart : null,
+                        onChanged: canSeek ? _onDragging : null,
+                        onChangeEnd: canSeek
+                            ? (v) => _onDragEnd(v, model)
                             : null,
                       ),
               ),

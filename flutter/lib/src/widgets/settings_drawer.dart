@@ -3,6 +3,7 @@ import 'package:hugeicons/hugeicons.dart';
 import 'package:offline_audio_app/src/app_update.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/settings.dart';
+import 'package:offline_audio_app/src/widgets/storage_summary_tile.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 class SettingsDrawerContent extends StatefulWidget {
@@ -16,7 +17,6 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
   YtdlpInfo? _ytdlp;
   String? _ytdlpMessage;
   bool _checking = false;
-  AppDirs? _dirs;
 
   String _appVersion = '…';
   String? _updateMessage;
@@ -33,13 +33,7 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
     if (mounted) setState(() => _appVersion = info.version);
     try {
       final ytdlp = await getYtdlpStatus();
-      final dirs = await appDirs();
-      if (mounted) {
-        setState(() {
-          _ytdlp = ytdlp;
-          _dirs = dirs;
-        });
-      }
+      if (mounted) setState(() => _ytdlp = ytdlp);
     } catch (_) {}
   }
 
@@ -154,23 +148,9 @@ class _SettingsDrawerContentState extends State<SettingsDrawerContent> {
             ),
           const Divider(),
           _SectionTitle('Almacenamiento'),
-          if (_dirs != null) ...[
-            ListTile(
-              leading: const HugeIcon(icon: HugeIcons.strokeRoundedFolder01),
-              title: const Text('Biblioteca (canciones .opus)'),
-              subtitle: Text(_dirs!.cache),
-            ),
-            ListTile(
-              leading: const HugeIcon(icon: HugeIcons.strokeRoundedImage01),
-              title: const Text('Miniaturas'),
-              subtitle: Text(_dirs!.thumbs),
-            ),
-            ListTile(
-              leading: const HugeIcon(icon: HugeIcons.strokeRoundedDatabase),
-              title: const Text('Temporal'),
-              subtitle: Text(_dirs!.tmp),
-            ),
-          ],
+          // Sin rutas crudas: solo un resumen de uso legible. Las rutas
+          // internas las gestiona el motor.
+          const StorageSummaryTile(),
           const Divider(),
           ListTile(
             leading: const HugeIcon(

@@ -3,12 +3,14 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/cupertino.dart' show CupertinoActivityIndicator;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/app_model.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/rust/engine/models.dart';
 import 'package:offline_audio_app/src/screens/screens.dart';
+import 'package:offline_audio_app/src/search/preview_errors.dart';
 import 'package:offline_audio_app/src/search/youtube_search.dart';
 import 'package:offline_audio_app/src/widgets/widgets.dart';
 
@@ -64,6 +66,16 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   /// Guard contra doble pulsación mientras se obtiene el manifest del avance.
   bool _previewBusy = false;
 
+  /// Id del resultado cuyo avance se está resolviendo (para el spinner por
+  /// fila). Acompaña a `_previewBusy`, que bloquea avances simultáneos.
+  String? _resolvingId;
+
+  /// URLs directas de avance ya resueltas por `videoId`: las URLs de
+  /// googlevideo caducan en horas, así que se cachean con TTL y re-tocar
+  /// el mismo resultado suena al instante sin volver a resolver.
+  static const _previewCacheTtl = Duration(hours: 4);
+  final Map<String, ({String url, DateTime expiresAt})> _previewUrlCache = {};
+
   /// Nº de secuencia de búsqueda: solo la consulta más reciente aplica su
   /// resultado. Evita que respuestas tardías pisen unas más nuevas y hace
   /// imposible lanzar dos peticiones idénticas a la vez.
@@ -82,6 +94,49 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   @override
   void initState() {
     super.initState();
+    // Flechas + Enter + Escape sobre el propio nodo del campo, para que el
+    // handler corra antes que el submit interno del TextField.
+    _searchFocusNode.onKeyEvent = _onSearchFieldKey;
+  }
+
+  /// Navegación por teclado del buscador (Windows/macOS): flecha abajo entra
+  /// a sugerencias/historial, arriba/abajo mueven el resaltado, Enter busca
+  /// lo resaltado (o lo escrito si no hay nada resaltado) y Escape quita el
+  /// resaltado. Sin lista visible todo se ignora (comportamiento normal).
+  KeyEventResult _onSearchFieldKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final recent = _recentKey.currentState;
+    final listOpen =
+        _showingRecent && recent != null && recent.navItemCount > 0;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowDown) {
+      if (!listOpen) return KeyEventResult.ignored;
+      recent.moveSelection(1);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowUp) {
+      if (!listOpen || !recent.hasNavSelection) {
+        return KeyEventResult.ignored;
+      }
+      recent.moveSelection(-1);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter) {
+      final q = recent?.confirmSelection();
+      if (q == null) return KeyEventResult.ignored;
+      _searchController.text = q;
+      _searchNow(q);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.escape) {
+      if (recent?.hasNavSelection == true) {
+        recent!.clearSelection();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.ignored;
   }
 
   @override
@@ -152,38 +207,122 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
 
   /// Obtiene el stream directo y reproduce el avance: audio en la barra,
   /// vídeo a pantalla completa. No toca la biblioteca ni las estadísticas.
+  ///
+  /// Vía rápida con `youtube_explode`; si el manifest falla (vídeos con
+  /// restricción, cipher nuevo, etc.), fallback al motor (`yt-dlp -g`),
+  /// que sí los resuelve. El usuario solo ve un mensaje corto en español.
   Future<void> _preview(SearchResult r, {required bool video}) async {
     if (_previewBusy) return;
     final model = AppModelProvider.of(context);
-    setState(() => _previewBusy = true);
+    setState(() {
+      _previewBusy = true;
+      _resolvingId = r.id;
+    });
     try {
-      final url = video
-          ? await YoutubeSearch.videoPreviewUrl(r.id)
-          : await YoutubeSearch.audioPreviewUrl(r.id);
+      final url = await _previewUrl(r, video: video);
       if (!mounted) return;
-      await model.playPreview(
-        id: r.id,
-        title: r.title,
-        artist: r.author,
-        url: url,
-        isVideo: video,
-      );
+      try {
+        await model.playPreview(
+          id: r.id,
+          title: r.title,
+          artist: r.author,
+          url: url,
+          isVideo: video,
+        );
+      } catch (playError) {
+        // La URL de googlevideo caduca a las horas: si venía de caché,
+        // re-resolvemos fresca y reintentamos una sola vez antes de rendir.
+        _previewUrlCache.remove('${video ? 'v' : 'a'}:${r.id}');
+        final fresh = await _previewUrl(r, video: video);
+        await model.playPreview(
+          id: r.id,
+          title: r.title,
+          artist: r.author,
+          url: fresh,
+          isVideo: video,
+        );
+      }
       if (video && mounted) {
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => PreviewVideoScreen(url: url, title: r.title),
+            builder: (_) => PreviewVideoScreen(
+              url: url,
+              title: r.title,
+              id: r.id,
+              artist: r.author,
+            ),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
-        showAppSnackBar(
-          context,
-          message: 'No se pudo reproducir el avance: $e',
-        );
+        showAppSnackBar(context, message: friendlyPreviewError(e));
       }
     } finally {
-      if (mounted) setState(() => _previewBusy = false);
+      if (mounted) {
+        setState(() {
+          _previewBusy = false;
+          _resolvingId = null;
+        });
+      } else {
+        _previewBusy = false;
+        _resolvingId = null;
+      }
+    }
+  }
+
+  /// URL del avance: primero el motor (`yt-dlp -g`), que es el que
+  /// resuelve hoy; la vía rápida de Dart queda como fallback por si el
+  /// motor falla. En iOS NO hay motor (sandbox), así que solo vía rápida.
+  /// Si el motor falla por auth/bot/cookies, se reporta directo: la vía
+  /// rápida tampoco lo resolvería y solo taparía el error útil.
+  Future<String> _previewUrl(SearchResult r, {required bool video}) async {
+    // Caché con TTL: re-tocar el mismo resultado no vuelve a resolver.
+    final cacheKey = '${video ? 'v' : 'a'}:${r.id}';
+    final hit = _previewUrlCache[cacheKey];
+    if (hit != null) {
+      if (DateTime.now().isBefore(hit.expiresAt)) return hit.url;
+      _previewUrlCache.remove(cacheKey);
+    }
+    final url = await _resolvePreviewUrl(r, video: video);
+    _previewUrlCache[cacheKey] =
+        (url: url, expiresAt: DateTime.now().add(_previewCacheTtl));
+    return url;
+  }
+
+  /// Resolución real de la URL del avance (motor primero, vía rápida de
+  /// fallback). Ver doc de `_previewUrl` para el orden y errores.
+  Future<String> _resolvePreviewUrl(SearchResult r, {required bool video}) async {
+    if (isIOSPlatform) {
+      return video
+          ? await YoutubeSearch.videoPreviewUrl(r.id)
+          : await YoutubeSearch.audioPreviewUrl(r.id);
+    }
+    Object? motorError;
+    try {
+      return await previewStreamUrl(url: r.url, video: video);
+    } catch (e) {
+      motorError = e;
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('bot') ||
+          msg.contains('cookie') ||
+          msg.contains('login') ||
+          msg.contains('sign in') ||
+          msg.contains('iniciar sesión')) {
+        rethrow;
+      }
+      debugPrint('[Preview] motor falló (${e.runtimeType}), fallback vía rápida');
+    }
+    try {
+      return video
+          ? await YoutubeSearch.videoPreviewUrl(r.id)
+          : await YoutubeSearch.audioPreviewUrl(r.id);
+    } catch (_) {
+      // La vía rápida falla de forma crónica; el error del motor suele
+      // ser más informativo (privado, restricción real, red, etc.).
+      // `motorError` siempre está seteado aquí: es el único camino que
+      // llega a este punto.
+      throw motorError;
     }
   }
 
@@ -274,14 +413,15 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   }
 
   Future<void> _startDownload(SearchResult result, ContentKind kind) async {
+    // En iOS la descarga va por el camino nativo (stream HTTPS directo,
+    // sin yt-dlp); en el resto de plataformas lo resuelve el motor Rust.
     try {
       final model = AppModelProvider.of(context);
-      final taskId = await model.downloadFromUrl(result.url, kind: kind);
+      await model.downloadFromUrl(result.url, kind: kind);
       if (!mounted) return;
-      final short = taskId.length <= 8 ? taskId : taskId.substring(0, 8);
       showAppSnackBar(
         context,
-        message: 'Descarga iniciada ($short). Ver pestaña Descargas.',
+        message: 'Descarga iniciada. Ver pestaña Descargas.',
       );
     } catch (e) {
       if (!mounted) return;
@@ -292,6 +432,15 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   @override
   Widget build(BuildContext context) {
     final model = AppModelProvider.of(context);
+    // Error de dispositivo de audio: se avisa una sola vez por post-frame
+    // (el player lo reemite mientras parpadea playing).
+    if (model.audioDeviceError != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || model.audioDeviceError == null) return;
+        showAppSnackBar(context, message: model.audioDeviceError!);
+        model.consumeAudioDeviceError();
+      });
+    }
     return SafeArea(
       child: Column(
         children: [
@@ -455,6 +604,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           ...results.map(
             (r) => SearchResultTile(
               result: r,
+              loading: _resolvingId == r.id,
               onTap: () => _preview(r, video: false),
               onActions: () => _openResultActions(r),
             ),
@@ -484,9 +634,9 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // En Apple solo el buscador. En Material, buscador y acceso a
-              // ajustes en la misma fila.
-              if (isApplePlatform)
+              // En macOS solo el buscador (los ajustes están en el sidebar).
+              // En iOS y Material, buscador y acceso a ajustes en la misma fila.
+              if (isMacOSPlatform)
                 _buildSearchField(context)
               else
                 Padding(
@@ -496,8 +646,19 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                       Expanded(child: _searchField(context)),
                       Builder(
                         builder: (context) => IconButton(
-                          onPressed: () =>
-                              Scaffold.of(context).openEndDrawer(),
+                          onPressed: () {
+                            // iOS no tiene drawer: se abre Ajustes con push,
+                            // igual que hace el sidebar en macOS.
+                            if (isIOSPlatform) {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const SettingsScreen(),
+                                ),
+                              );
+                            } else {
+                              Scaffold.of(context).openEndDrawer();
+                            }
+                          },
                           tooltip: 'Ajustes',
                           icon: HugeIcon(
                             icon: HugeIcons.strokeRoundedSettings01,
@@ -518,9 +679,9 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
 
   Widget _buildSearchField(BuildContext context) {
     return Padding(
-      // En Apple no hay cabecera sobre el buscador, así que necesita más
+      // En macOS no hay cabecera sobre el buscador, así que necesita más
       // margen superior para no quedar pegado al borde del panel.
-      padding: EdgeInsets.fromLTRB(16, isApplePlatform ? 12 : 4, 16, 10),
+      padding: EdgeInsets.fromLTRB(16, isMacOSPlatform ? 12 : 4, 16, 10),
       child: _searchField(context),
     );
   }
@@ -621,7 +782,12 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                       leading: const HugeIcon(
                         icon: HugeIcons.strokeRoundedDownload01,
                       ),
-                      title: Text('Descarga ${_shortId(taskId)}'),
+                      title: Text(
+                        model.downloadTitle(taskId) ??
+                            'Descarga ${_shortId(taskId)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -638,7 +804,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                         tooltip: 'Cancelar',
                         onPressed: () async {
                           try {
-                            await cancelDownload(taskId: taskId);
+                            await model.cancelDownloadForTask(taskId);
                           } catch (e) {
                             if (context.mounted) {
                               showAppSnackBar(
@@ -662,7 +828,11 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                         icon: HugeIcons.strokeRoundedAlertCircle,
                         color: Colors.redAccent,
                       ),
-                      title: Text('Falló ${_shortId(taskId)}'),
+                      title: Text(
+                        'Falló · ${model.downloadTitle(taskId) ?? _shortId(taskId)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                       subtitle: Text(
                         reason,
                         maxLines: 4,

@@ -20,6 +20,26 @@ class SearchResult {
   });
 }
 
+/// Metadatos de un vídeo de YouTube (para tareas de descarga en iOS, donde
+/// no hay motor que sondee con yt-dlp).
+class VideoInfo {
+  final String id;
+  final String title;
+  final String author;
+  final Duration? duration;
+  final String thumbnailUrl;
+  final String url;
+
+  const VideoInfo({
+    required this.id,
+    required this.title,
+    required this.author,
+    required this.duration,
+    required this.thumbnailUrl,
+    required this.url,
+  });
+}
+
 /// Thin, swappable wrapper around `youtube_explode_dart`.
 ///
 /// Deliberately decoupled from the download engine: search lives here and
@@ -87,43 +107,172 @@ class YoutubeSearch {
     }
   }
 
-  /// URL directa para el avance de escucha.
-  ///
-  /// Los streams `audioOnly` de YouTube son DASH fragmentados: libmpv/media_kit
-  /// no puede reproducirlos con su URL simple (por eso el avance no sonaba).
-  /// Usamos `muxed`, que es progresivo y sí reproduce; como este avance no
-  /// empuja la pantalla de vídeo, solo se oye el audio.
-  static Future<String> audioPreviewUrl(String videoId) async {
-    debugPrint('[YoutubeSearch] manifest audio id=$videoId');
-    final manifest = await _yt.videos.streams
-        .getManifest(videoId)
-        .timeout(const Duration(seconds: 25));
-    final muxed = manifest.muxed;
-    if (muxed.isEmpty) {
-      throw StateError('Sin streams reproducibles para $videoId');
+  /// Manifest con dos caminos: rápido (client `androidSdkless` sin watch
+  /// page, medido ~300ms; sin PO-token, el `android` clásico dispara el
+  /// reto "Sign in to confirm you're not a bot" en muchos vídeos) y
+  /// completo (por si el vídeo necesita descifrado con watch page).
+  /// Devuelve `null` si ese intento no rinde streams.
+  static Future<StreamManifest?> _streamManifest(
+    String videoId, {
+    required bool fast,
+  }) async {
+    try {
+      final manifest = fast
+          ? await _yt.videos.streams
+              .getManifest(
+                videoId,
+                ytClients: [YoutubeApiClient.androidSdkless],
+                requireWatchPage: false,
+              )
+              .timeout(const Duration(seconds: 8))
+          : await _yt.videos.streams
+              .getManifest(videoId)
+              .timeout(const Duration(seconds: 15));
+      return manifest.muxed.isEmpty &&
+              manifest.audioOnly.isEmpty &&
+              manifest.hls.isEmpty
+          ? null
+          : manifest;
+    } catch (e) {
+      debugPrint('[YoutubeSearch] manifest ${fast ? 'rápido' : 'completo'} '
+          'id=$videoId falló: $e');
+      return null;
     }
-    final s = muxed.withHighestBitrate();
-    debugPrint(
-      '[YoutubeSearch] audio listo (muxed) id=$videoId '
-      'host=${s.url.host}',
-    );
-    return s.url.toString();
   }
 
-  /// URL directa del mejor stream muxado (audio+vídeo, 360p máx — vale para
-  /// previsualizar antes de descargar).
-  static Future<String> videoPreviewUrl(String videoId) async {
-    debugPrint('[YoutubeSearch] manifest vídeo id=$videoId');
-    final manifest = await _yt.videos.streams
-        .getManifest(videoId)
-        .timeout(const Duration(seconds: 25));
-    final muxed = manifest.muxed;
-    if (muxed.isEmpty) {
-      throw StateError('Sin streams de vídeo para $videoId');
+  /// Candidatos de AUDIO de un manifest en orden de compatibilidad con
+  /// AVPlayer (iOS): muxed progresivo → audioOnly en mp4 (m4a/AAC) → HLS
+  /// (muxed/audio, nunca video-only: sonaría a silencio). webm/opus queda
+  /// fuera: AVPlayer no lo decodifica.
+  static List<StreamInfo> _audioCandidates(StreamManifest m, {required bool withHls}) {
+    final out = <StreamInfo>[];
+    if (m.muxed.isNotEmpty) out.add(m.muxed.withHighestBitrate());
+    final m4a = m.audioOnly
+        .where((s) => s.container == StreamContainer.mp4)
+        .toList(growable: false);
+    if (m4a.isNotEmpty) out.add(m4a.withHighestBitrate());
+    if (withHls) {
+      final hls = m.hls
+          .where((s) => s is HlsMuxedStreamInfo || s is HlsAudioStreamInfo)
+          .toList(growable: false);
+      if (hls.isNotEmpty) out.add(hls.withHighestBitrate());
     }
-    final s = muxed.withHighestBitrate();
-    debugPrint('[YoutubeSearch] vídeo listo id=$videoId host=${s.url.host}');
-    return s.url.toString();
+    return out;
+  }
+
+  /// Candidatos de VÍDEO: muxed progresivo primero, HLS muxed (con audio)
+  /// como respaldo (video_player/AVPlayer reproduce m3u8 de forma nativa).
+  static List<StreamInfo> _videoCandidates(StreamManifest m, {required bool withHls}) {
+    final out = <StreamInfo>[];
+    if (m.muxed.isNotEmpty) out.add(m.muxed.withHighestBitrate());
+    if (withHls) {
+      final hls = m.hls.whereType<HlsMuxedStreamInfo>().toList(growable: false);
+      if (hls.isNotEmpty) out.add(hls.withHighestBitrate());
+    }
+    return out;
+  }
+
+  /// Resuelve la primera URL disponible probando el manifest rápido y, si
+  /// no rinde nada reproducible, el camino completo (con HLS incluido).
+  /// Devuelve el texto del stream elegido para la traza.
+  static Future<String> _previewUrlFromCandidates(
+    String videoId, {
+    required bool video,
+    required String kind,
+  }) async {
+    final sw = Stopwatch()..start();
+    debugPrint('[YoutubeSearch] manifest $kind id=$videoId');
+    Object? lastError;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final fast = attempt == 0;
+      final manifest = await _streamManifest(videoId, fast: fast);
+      if (manifest == null) continue;
+      try {
+        final candidates = video
+            ? _videoCandidates(manifest, withHls: !fast)
+            : _audioCandidates(manifest, withHls: !fast);
+        if (candidates.isEmpty) continue;
+        final s = candidates.first;
+        debugPrint(
+          '[YoutubeSearch] $kind listo (${s.container}) id=$videoId '
+          'host=${s.url.host} en ${sw.elapsedMilliseconds}ms',
+        );
+        return s.url.toString();
+      } catch (e) {
+        lastError = e;
+        debugPrint('[YoutubeSearch] $kind intento ${attempt + 1} falló: $e');
+      }
+    }
+    throw lastError ??
+        StateError(
+          video ? 'Sin streams de vídeo para $videoId' : 'Sin streams reproducibles para $videoId',
+        );
+  }
+
+  /// URL directa para el avance de escucha.
+  ///
+  /// En iOS es la ÚNICA vía (sin motor yt-dlp por el sandbox) y el reproductor
+  /// es AVPlayer: reproduce mp4/m4a y HLS, pero no webm/opus. La cadena de
+  /// candidatos ([_audioCandidates]) baja de muxed progresivo a audioOnly
+  /// m4a y a HLS para cubrir los vídeos que ya no exponen streams muxados.
+  static Future<String> audioPreviewUrl(String videoId) =>
+      _previewUrlFromCandidates(videoId, video: false, kind: 'audio');
+
+  /// URL directa del mejor stream para previsualizar antes de descargar.
+  /// Misma estrategia que el audio: manifest rápido primero, completo
+  /// (con HLS de respaldo) después.
+  static Future<String> videoPreviewUrl(String videoId) =>
+      _previewUrlFromCandidates(videoId, video: true, kind: 'vídeo');
+
+  /// Metadatos del vídeo (título, autor, duración) para tareas de descarga.
+  /// Acepta ID o URL (watch, youtu.be, shorts, live).
+  static Future<VideoInfo> videoInfo(String videoIdOrUrl) async {
+    final id = VideoId(videoIdOrUrl);
+    final v = await _yt.videos.get(id).timeout(const Duration(seconds: 15));
+    return VideoInfo(
+      id: id.value,
+      title: v.title,
+      author: v.author,
+      duration: v.duration,
+      thumbnailUrl: v.thumbnails.highResUrl,
+      url: 'https://www.youtube.com/watch?v=${id.value}',
+    );
+  }
+
+  /// Mejor URL para DESCARGAR el stream como archivo único.
+  ///
+  /// OJO: los streams audioOnly (rqh=1) están capados a ~1 MiB por HTTP
+  /// plano; los muxed progresivos (itag 18/22) llevan `ratebypass=yes`
+  /// firmado y se bajan COMPLETOS con un GET simple — probado 200 en 17 MB.
+  /// Devuelve la URL y la extensión correcta del contenedor; `null` si no
+  /// hay nada descargable.
+  static Future<(String url, String ext)?> bestDownloadUrl(
+    String videoIdOrUrl, {
+    required bool audioOnly,
+  }) async {
+    final id = VideoId(videoIdOrUrl);
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final manifest = await _streamManifest(id.value, fast: attempt == 0);
+      if (manifest == null) continue;
+      if (audioOnly) {
+        final m4a = manifest.audioOnly
+            .where((s) => s.container == StreamContainer.mp4)
+            .toList(growable: false);
+        if (m4a.isNotEmpty) {
+          final s = m4a.withHighestBitrate();
+          debugPrint('[YoutubeSearch] descarga m4a id=${id.value} '
+              'host=${s.url.host} kbps=${s.bitrate.kiloBitsPerSecond}');
+          return (s.url.toString(), 'm4a');
+        }
+      }
+      if (manifest.muxed.isNotEmpty) {
+        final s = manifest.muxed.withHighestBitrate();
+        debugPrint('[YoutubeSearch] descarga muxed id=${id.value} '
+            'host=${s.url.host} kbps=${s.bitrate.kiloBitsPerSecond}');
+        return (s.url.toString(), 'mp4');
+      }
+    }
+    return null;
   }
 
   /// YouTube search autocomplete predictions for the given partial query.

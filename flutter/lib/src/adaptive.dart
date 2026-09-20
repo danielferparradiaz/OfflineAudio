@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:hugeicons/hugeicons.dart';
+import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 
 import 'platform.dart';
 
@@ -545,21 +546,59 @@ class AppSearchField extends StatelessWidget {
   }
 }
 
-/// Explica la utilidad de Sync: mantener biblioteca, listas de reproducción
-/// y vídeos sincronizados entre dispositivos con la cuenta de OfflineAudio.
-Future<void> showSyncInfoDialog(BuildContext context) {
-  return showAppDialog<void>(
+/// Preferencia de Streaming (traslado de la biblioteca a OfflineAudio
+/// Cloud para liberar espacio del dispositivo). El traslado real llega en
+/// el próximo release; la preferencia ya se persiste en el motor.
+const kStreamingEnabledKey = 'sync.streaming_enabled';
+
+Future<bool> isStreamingEnabled() async {
+  try {
+    final v = await getSetting(key: kStreamingEnabledKey);
+    return v == '1';
+  } catch (_) {
+    return false;
+  }
+}
+
+Future<void> setStreamingEnabled(bool enabled) => setSetting(
+  key: kStreamingEnabledKey,
+  value: enabled ? '1' : '0',
+);
+
+/// Diálogo de Sync: explica qué hace y permite activar/desactivar el
+/// streaming en la nube. Devuelve tras aplicar el cambio (si lo hubo).
+Future<void> showSyncInfoDialog(BuildContext context) async {
+  final enabled = await isStreamingEnabled();
+  if (!context.mounted) return;
+  final toggle = await showAppDialog<bool>(
     context,
     title: const Text('Sync'),
-    content: const Text(
-      'Sync mantendrá tu biblioteca, listas de reproducción y vídeos '
-      'sincronizados entre todos tus dispositivos con tu cuenta de '
-      'OfflineAudio Cloud.\n\nAsí podrás seguir una reproducción en otro '
-      'dispositivo sin volver a descargar nada.\n\nDisponible '
-      'próximamente.',
+    content: Text(
+      enabled
+          ? 'Streaming activado: tu biblioteca (canciones, vídeos y listas '
+              'de reproducción) se trasladará a OfflineAudio Cloud y se '
+              'liberará del dispositivo: la reproducirás en streaming sin '
+              'ocupar espacio.\n\nEl traslado llega en la próxima '
+              'actualización; tu preferencia ya está guardada.'
+          : 'Sync mantendrá tu biblioteca, listas de reproducción y vídeos '
+              'sincronizados entre dispositivos con tu cuenta de '
+              'OfflineAudio Cloud.\n\nAl activar Streaming, tu biblioteca '
+              'se traslada a nuestros servidores y se libera del '
+              'dispositivo: reproducirás en streaming sin ocupar '
+              'espacio.\n\nEl traslado llega en la próxima actualización; '
+              'activarlo ahora guarda tu preferencia.',
     ),
-    actions: [AppDialogAction(label: 'Entendido', isDefault: true)],
+    actions: [
+      AppDialogAction(
+        label: enabled ? 'Desactivar streaming' : 'Activar streaming',
+        getValue: () => true,
+      ),
+      AppDialogAction(label: 'Entendido', isDefault: true),
+    ],
   );
+  if (toggle == true) {
+    await setStreamingEnabled(!enabled);
+  }
 }
 
 /// Página completa adaptativa: CupertinoPageScaffold + CupertinoNavigationBar
@@ -582,6 +621,12 @@ class AppPage extends StatelessWidget {
       final tint = CupertinoTheme.of(context).primaryColor;
       return CupertinoPageScaffold(
         navigationBar: CupertinoNavigationBar(
+          // Sin hero entre rutas: el shell de macOS anida un AppPage
+          // (Playlists, offstage en el IndexedStack) bajo el mismo
+          // Navigator que Ajustes/detalle. Con transitionBetweenRoutes
+          // el header offstage de Playlists volaba como hero y tapaba
+          // el buscador de Biblioteca unos ms al volver de Ajustes.
+          transitionBetweenRoutes: false,
           middle: title == null ? null : Text(title!),
           trailing: actions.isEmpty
               ? null

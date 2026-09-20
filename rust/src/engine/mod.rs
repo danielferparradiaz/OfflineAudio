@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub mod converter;
+pub mod cookies;
 pub mod downloader;
 pub mod events;
 pub mod models;
@@ -61,6 +62,16 @@ impl AppEngine {
         }
         if self.db.get_setting(SETTING_LANGUAGE).await?.is_none() {
             self.db.set_setting(SETTING_LANGUAGE, "es").await?;
+        }
+        if self
+            .db
+            .get_setting(cookies::SETTING_COOKIES_BROWSER)
+            .await?
+            .is_none()
+        {
+            self.db
+                .set_setting(cookies::SETTING_COOKIES_BROWSER, cookies::COOKIES_AUTO)
+                .await?;
         }
         Ok(())
     }

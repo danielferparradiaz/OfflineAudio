@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.1.1+6
+version: 1.2.0+7
 
 environment:
   sdk: ^3.13.2
@@ -46,11 +46,20 @@ dependencies:
   # media_kit_libs_audio). Obligatorio para que VideoController funcione;
   # con solo libs_audio no hay decodificadores H264 y la pantalla sale negra.
   media_kit_libs_video: ^1.0.7
+  # Configura AVAudioSession en iOS (categoría playback, activa). Sin ella
+  # el player queda en sesión "ambient": el avance/abertura parecen correr
+  # pero no suena nada (sobre todo en dispositivo real con silencio).
+  audio_session: ^0.2.2
   shared_preferences: ^2.5.4
   path_provider: ^2.1.5
   youtube_explode_dart: 3.1.0
   hugeicons: ^1.1.7
   package_info_plus: ^10.2.1
+  just_audio: ^0.10.6
+  video_player: ^2.14.0
+  # Descarga nativa en iOS: la sandbox de Apple impide ejecutar yt-dlp/ffmpeg,
+  # así que se baja el stream resuelto (youtube_explode) por HTTPS directo.
+  http: ^1.5.0
 
 dev_dependencies:
   flutter_test:

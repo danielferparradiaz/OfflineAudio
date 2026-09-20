@@ -25,6 +25,8 @@ chrono = { version = "0.4", features = ["serde"] }
 tokio-util = "0.7"
 which = "6"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+log = "0.4"
+env_logger = "0.11"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

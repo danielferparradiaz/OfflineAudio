@@ -6,10 +6,122 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::time::timeout;
 
+use crate::engine::cookies::ResolvedCookies;
 use crate::engine::models::ProbeInfo;
-use crate::engine::process::{child_log, ensure_yt_dlp, null, pipe, sanitize_url};
+use crate::engine::process::{
+    child_log, ensure_yt_dlp, null, pace_ytdlp_calls, pipe, sanitize_url,
+};
 
 const PROBE_TIMEOUT_SECS: u64 = 180;
+const STREAM_URL_TIMEOUT_SECS: u64 = 30;
+
+/// Selector de formato para resolver la URL directa de un avance.
+/// Audio: mejor stream solo-audio (mpv lo reproduce sin problema); vídeo:
+/// mejor archivo único (progresivo) capado a 480p para que el reproductor
+/// arranque antes (menos buffer inicial).
+pub fn preview_format(video: bool) -> &'static str {
+    if video {
+        "b[height<=480]/b"
+    } else {
+        "ba/b"
+    }
+}
+
+/// Único ejecutor con fallback para los comandos puntuales de yt-dlp
+/// (probe y avance): corre `base + cookies + url` y, solo si el fallo se
+/// clasifica como extracción de cookies y había cookies, reintenta UNA vez
+/// pelado. El error final ya viene clasificado y en español vía
+/// [`cookies::friendly_message`].
+async fn output_with_cookie_fallback(
+    bin: &std::path::Path,
+    base_args: &[&str],
+    url: &str,
+    cookies: &ResolvedCookies,
+    timeout_dur: std::time::Duration,
+    on_timeout: anyhow::Error,
+) -> Result<std::process::Output> {
+    let attempts: Vec<ResolvedCookies> = if cookies.has_cookies() {
+        vec![cookies.clone(), ResolvedCookies::none()]
+    } else {
+        vec![ResolvedCookies::none()]
+    };
+    let mut last_tail = String::new();
+    // Ritmo global anti-bloqueo antes del primer intento (el reintento
+    // hereda el hueco del intento fallido).
+    pace_ytdlp_calls().await;
+    for (i, attempt) in attempts.iter().enumerate() {
+        let owned = attempt.full_args(base_args, url);
+        let refs: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
+        let mut cmd = child_log(bin, &refs, null(), pipe(), pipe());
+        let out = timeout(timeout_dur, cmd.output())
+            .await
+            .map_err(|_| anyhow::anyhow!("{on_timeout}"))?
+            .map_err(|e| anyhow::anyhow!("error ejecutando yt-dlp ({}): {e}", bin.display()))?;
+        if out.status.success() {
+            return Ok(out);
+        }
+        let tail = String::from_utf8_lossy(&out.stderr)
+            .lines()
+            .rev()
+            .take(6)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let failure = crate::engine::cookies::classify(&tail);
+        if i == 0
+            && attempt.has_cookies()
+            && failure == crate::engine::cookies::YtDlpFailure::CookieExtraction
+        {
+            last_tail = tail;
+            continue;
+        }
+        bail!(
+            "{}",
+            crate::engine::cookies::friendly_message(failure, attempt.browser_used(), &tail)
+        );
+    }
+    bail!(
+        "{}",
+        crate::engine::cookies::friendly_message(
+            crate::engine::cookies::YtDlpFailure::CookieExtraction,
+            cookies.browser_used(),
+            &last_tail,
+        )
+    );
+}
+
+/// Resuelve con yt-dlp la URL directa de stream para previsualizar un
+/// resultado sin descargarlo (vía principal del avance).
+/// Devuelve la primera URL; caducan en horas, vale para reproducir al momento.
+pub async fn stream_url(url: &str, video: bool, cookies: &ResolvedCookies) -> Result<String> {
+    let url = sanitize_url(url)?;
+    let bin = ensure_yt_dlp().await?;
+    let format = preview_format(video);
+    let base = [
+        "--get-url",
+        "--no-playlist",
+        "--no-warnings",
+        "--socket-timeout",
+        "15",
+        "-f",
+        format,
+    ];
+    let out = output_with_cookie_fallback(
+        &bin,
+        &base,
+        &url,
+        cookies,
+        std::time::Duration::from_secs(STREAM_URL_TIMEOUT_SECS),
+        anyhow::anyhow!("yt-dlp tardó demasiado resolviendo el avance (>30s)"),
+    )
+    .await?;
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let first = stdout
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("http"))
+        .context("yt-dlp no devolvió URL de stream")?;
+    Ok(first.to_string())
+}
 
 fn json_str(v: &Value) -> Option<String> {
     match v {
@@ -77,54 +189,42 @@ pub fn likely_speech(
 }
 
 /// Query yt-dlp for metadata of a URL without downloading it.
-pub async fn probe(url: &str) -> Result<ProbeInfo> {
+/// Usa el ejecutor central con fallback: si la extracción de cookies falla
+/// se reintenta una vez sin cookies (el vídeo público sale sin login).
+pub async fn probe(url: &str, cookies: &ResolvedCookies) -> Result<ProbeInfo> {
     let url = sanitize_url(url)?;
     let bin = ensure_yt_dlp().await.context(
         "Motor de descargas no disponible todavía. \
          Se está preparando solo; inténtalo de nuevo en un momento.",
     )?;
-
-    let mut cmd = child_log(
+    let base: Vec<&str> = vec![
+        "--dump-json",
+        "--no-playlist",
+        "--no-warnings",
+        "--skip-download",
+        "--force-ipv4",
+        "--socket-timeout",
+        "45",
+    ];
+    let out = output_with_cookie_fallback(
         &bin,
-        &[
-            "--dump-json",
-            "--no-playlist",
-            "--no-warnings",
-            "--skip-download",
-            "--force-ipv4",
-            "--socket-timeout",
-            "45",
-            &url,
-        ],
-        null(),
-        pipe(),
-        pipe(),
-    );
-
-    let out = timeout(
+        &base,
+        &url,
+        cookies,
         std::time::Duration::from_secs(PROBE_TIMEOUT_SECS),
-        cmd.output(),
-    )
-    .await
-    .map_err(|_| {
         anyhow::anyhow!(
             "El análisis del enlace tardó demasiado (>{PROBE_TIMEOUT_SECS}s). \
              Comprueba tu conexión e inténtalo de nuevo."
-        )
-    })?
-    .map_err(|e| {
-        // Provide more context about the error
-        let bin_path = bin.to_string_lossy();
-        anyhow::anyhow!("error ejecutando yt-dlp ({}): {e}", bin_path)
-    })?;
-
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        let tail = stderr.lines().rev().take(6).collect::<Vec<_>>().join("\n");
-        bail!("yt-dlp no pudo analizar el enlace:\n{tail}");
-    }
+        ),
+    )
+    .await?;
 
     let stdout = String::from_utf8_lossy(&out.stdout);
+    parse_probe_json(&stdout)
+}
+
+/// Parsea el JSON de `--dump-json` a [`ProbeInfo`].
+fn parse_probe_json(stdout: &str) -> Result<ProbeInfo> {
     let mut v: Value = serde_json::from_str(stdout.trim())
         .map_err(|e| anyhow::anyhow!("respuesta de yt-dlp no válida: {e}"))?;
 
@@ -165,58 +265,67 @@ pub async fn probe(url: &str) -> Result<ProbeInfo> {
 }
 
 /// Args for strategy A: yt-dlp streams the media to stdout.
-pub fn ytdlp_stream_args(url: &str) -> Vec<String> {
-    vec![
-        "-f".into(),
-        "bestaudio/best".into(),
-        "-o".into(),
-        "-".into(),
-        "--no-part".into(),
-        "--newline".into(),
-        "--no-colors".into(),
-        "--no-playlist".into(),
-        "--force-ipv4".into(),
-        "--socket-timeout".into(),
-        "30".into(),
-        url.to_string(),
-    ]
+pub fn ytdlp_stream_args(url: &str, cookies: &ResolvedCookies) -> Vec<String> {
+    let mut args = vec![
+        "-f".to_string(),
+        "bestaudio/best".to_string(),
+        "-o".to_string(),
+        "-".to_string(),
+        "--no-part".to_string(),
+        "--newline".to_string(),
+        "--no-colors".to_string(),
+        "--no-playlist".to_string(),
+        "--force-ipv4".to_string(),
+        "--socket-timeout".to_string(),
+        "30".to_string(),
+    ];
+    args.extend(cookies.args.iter().cloned());
+    args.extend(cookies.extractor_args());
+    args.push(url.to_string());
+    args
 }
 
 /// Args for strategy B: yt-dlp downloads to a local temp file.
-pub fn ytdlp_disk_args(url: &str, dest_pattern: &str) -> Vec<String> {
-    vec![
-        "-f".into(),
-        "bestaudio/best".into(),
-        "-o".into(),
+pub fn ytdlp_disk_args(url: &str, dest_pattern: &str, cookies: &ResolvedCookies) -> Vec<String> {
+    let mut args = vec![
+        "-f".to_string(),
+        "bestaudio/best".to_string(),
+        "-o".to_string(),
         dest_pattern.to_string(),
-        "--newline".into(),
-        "--no-colors".into(),
-        "--no-playlist".into(),
-        "--force-ipv4".into(),
-        "--socket-timeout".into(),
-        "30".into(),
-        url.to_string(),
-    ]
+        "--newline".to_string(),
+        "--no-colors".to_string(),
+        "--no-playlist".to_string(),
+        "--force-ipv4".to_string(),
+        "--socket-timeout".to_string(),
+        "30".to_string(),
+    ];
+    args.extend(cookies.args.iter().cloned());
+    args.extend(cookies.extractor_args());
+    args.push(url.to_string());
+    args
 }
 
 /// Args for downloading a full video: best video + best audio muxed into an
 /// `.mp4` container via ffmpeg (`--merge-output-format mp4`).
-pub fn ytdlp_video_args(url: &str, dest_pattern: &str) -> Vec<String> {
-    vec![
-        "-f".into(),
-        "bv*+ba/b".into(),
-        "--merge-output-format".into(),
-        "mp4".into(),
-        "-o".into(),
+pub fn ytdlp_video_args(url: &str, dest_pattern: &str, cookies: &ResolvedCookies) -> Vec<String> {
+    let mut args = vec![
+        "-f".to_string(),
+        "bv*+ba/b".to_string(),
+        "--merge-output-format".to_string(),
+        "mp4".to_string(),
+        "-o".to_string(),
         dest_pattern.to_string(),
-        "--newline".into(),
-        "--no-colors".into(),
-        "--no-playlist".into(),
-        "--force-ipv4".into(),
-        "--socket-timeout".into(),
-        "30".into(),
-        url.to_string(),
-    ]
+        "--newline".to_string(),
+        "--no-colors".to_string(),
+        "--no-playlist".to_string(),
+        "--force-ipv4".to_string(),
+        "--socket-timeout".to_string(),
+        "30".to_string(),
+    ];
+    args.extend(cookies.args.iter().cloned());
+    args.extend(cookies.extractor_args());
+    args.push(url.to_string());
+    args
 }
 
 /// Streaming read of a (possibly large) stdout JSON line-by-line is not
@@ -261,17 +370,47 @@ mod tests {
 
     #[test]
     fn stream_args_use_argv_not_shell() {
-        let args = ytdlp_stream_args("https://youtube.com/watch?v=abc");
+        let args = ytdlp_stream_args("https://youtube.com/watch?v=abc", &ResolvedCookies::none());
         assert!(args.contains(&"-o".to_string()));
         assert!(args.contains(&"-".to_string()));
         assert!(args.iter().any(|a| a.contains("https://")));
+        // El player client anti-bot viaja siempre, incluso sin cookies.
+        assert!(args.contains(&"--extractor-args".to_string()));
+    }
+
+    #[test]
+    fn stream_args_include_cookies() {
+        let cookies = ResolvedCookies {
+            args: vec!["--cookies-from-browser".to_string(), "chrome".to_string()],
+            browser: Some("chrome".to_string()),
+        };
+        let args = ytdlp_stream_args("https://youtube.com/watch?v=abc", &cookies);
+        assert!(args.contains(&"--cookies-from-browser".to_string()));
+        assert!(args.contains(&"chrome".to_string()));
+        // Con cookies no se usa tv (invalidaría la sesión): web_safari.
+        assert!(args.contains(&"youtube:player_client=web_safari".to_string()));
+        // La URL siempre va al final, tras las cookies.
+        assert_eq!(args.last().unwrap(), "https://youtube.com/watch?v=abc");
     }
 
     #[test]
     fn video_args_mux_to_mp4() {
-        let args = ytdlp_video_args("https://youtube.com/watch?v=abc", "tmp/%(ext)s");
+        let args = ytdlp_video_args(
+            "https://youtube.com/watch?v=abc",
+            "tmp/%(ext)s",
+            &ResolvedCookies::none(),
+        );
         assert!(args.contains(&"bv*+ba/b".to_string()));
         assert!(args.contains(&"mp4".to_string()));
         assert!(args.contains(&"tmp/%(ext)s".to_string()));
+    }
+
+    #[test]
+    fn preview_format_single_file_selections() {
+        // Audio: solo-audio; vídeo: mejor archivo único (progresivo),
+        // capado a 480p para arrancar antes, porque el reproductor solo
+        // acepta una URL.
+        assert_eq!(preview_format(false), "ba/b");
+        assert_eq!(preview_format(true), "b[height<=480]/b");
     }
 }

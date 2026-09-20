@@ -704,9 +704,49 @@ pub fn null() -> std::process::Stdio {
     std::process::Stdio::null()
 }
 
+/// Hueco mínimo entre invocaciones a yt-dlp en todo el proceso. YouTube
+/// marca las IPs que disparan ráfagas (tras ~10-20 peticiones seguidas
+/// empieza el reto anti-bot), así que cada spawn espera lo que falte para
+/// respetar el hueco. El lock se mantiene durante la espera: los spawns
+/// quedan estrictamente separados al menos por el gap.
+pub const YTDLP_MIN_GAP: std::time::Duration = std::time::Duration::from_secs(4);
+
+static LAST_YTDLP_CALL: std::sync::OnceLock<tokio::sync::Mutex<Option<std::time::Instant>>> =
+    std::sync::OnceLock::new();
+
+fn ytdlp_pace_state() -> &'static tokio::sync::Mutex<Option<std::time::Instant>> {
+    LAST_YTDLP_CALL.get_or_init(|| tokio::sync::Mutex::new(None))
+}
+
+pub async fn pace_ytdlp_calls() {
+    pace_ytdlp_calls_with_gap(YTDLP_MIN_GAP).await;
+}
+
+/// Variante testeable del pacing con hueco parametrizable.
+pub async fn pace_ytdlp_calls_with_gap(gap: std::time::Duration) {
+    let mut slot = ytdlp_pace_state().lock().await;
+    let now = std::time::Instant::now();
+    if let Some(last) = *slot {
+        let elapsed = now.duration_since(last);
+        if elapsed < gap {
+            tokio::time::sleep(gap - elapsed).await;
+        }
+    }
+    *slot = Some(std::time::Instant::now());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn pace_respects_gap_without_hanging() {
+        // Hueco cero: dos llamadas seguidas vuelven al instante.
+        let start = std::time::Instant::now();
+        pace_ytdlp_calls_with_gap(std::time::Duration::ZERO).await;
+        pace_ytdlp_calls_with_gap(std::time::Duration::ZERO).await;
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+    }
 
     #[test]
     fn zip_member_extracts_by_name() {

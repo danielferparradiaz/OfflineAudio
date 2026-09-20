@@ -9,17 +9,23 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `download_desktop_ffmpeg`, `engine_ref`
+// These functions are ignored because they are not marked as `pub`: `dir_size`, `download_desktop_ffmpeg`, `engine_ref`, `init_logging`, `provision_engine_binaries`
 
-/// Initialize the engine (directories, SQLite, settings) and start background
-/// workers. Called explicitly from Dart after `RustLib.init()` (and after
-/// `set_app_dir()` on mobile) — NOT auto-run, so the app dir override lands
-/// before the engine touches the filesystem.
 Future<void> initApp() => RustLib.instance.api.crateApiEngineApiInitApp();
 
 /// Query metadata for a URL without downloading anything.
 Future<ProbeInfo> probeUrl({required String url}) =>
     RustLib.instance.api.crateApiEngineApiProbeUrl(url: url);
+
+/// Resolve a direct stream URL for previewing a result without downloading.
+/// Fallback path when the Dart library cannot fetch the manifest: yt-dlp
+/// handles restricted videos and newer ciphers that break it. `video` picks
+/// the progressive file selection, otherwise best audio.
+Future<String> previewStreamUrl({required String url, required bool video}) =>
+    RustLib.instance.api.crateApiEngineApiPreviewStreamUrl(
+      url: url,
+      video: video,
+    );
 
 /// Start a download+convert task. Returns a task id; progress and result are
 /// delivered on the event stream.
@@ -27,6 +33,14 @@ Future<String> startDownload({
   required String url,
   required ContentKind kind,
 }) => RustLib.instance.api.crateApiEngineApiStartDownload(url: url, kind: kind);
+
+/// Persist a media file downloaded by a platform-native backend.
+///
+/// Android uses youtubedl-android/ffmpeg-kit because Android 10+ blocks
+/// executing the CLI runtime from the writable app directory. Dart owns the
+/// native task lifecycle and sends the finished Track back here for storage.
+Future<void> persistExternalTrack({required Track track}) =>
+    RustLib.instance.api.crateApiEngineApiPersistExternalTrack(track: track);
 
 /// Cancel a running download task.
 Future<void> cancelDownload({required String taskId}) =>
@@ -130,6 +144,9 @@ Future<void> setSetting({required String key, required String value}) =>
 
 Future<AppDirs> appDirs() => RustLib.instance.api.crateApiEngineApiAppDirs();
 
+Future<StorageUsage> storageUsage() =>
+    RustLib.instance.api.crateApiEngineApiStorageUsage();
+
 /// Snapshot of the last yt-dlp check (from persisted settings).
 Future<YtdlpInfo> getYtdlpStatus() =>
     RustLib.instance.api.crateApiEngineApiGetYtdlpStatus();
@@ -150,14 +167,19 @@ Future<void> setAppDir({required String path}) =>
 Future<BinariesStatus> binariesStatus() =>
     RustLib.instance.api.crateApiEngineApiBinariesStatus();
 
-/// Download yt-dlp + ffmpeg into the app binary dir. Funciona en todas las
-/// plataformas (el nombre histórico `download_mobile_binaries` se mantiene
-/// por compatibilidad FRB): en Android ffmpeg viene de builds por ABI
-/// (Tyrrrz/FFmpegBin) y yt-dlp como runtime autocontenido publicado por este
-/// repo; en escritorio yt-dlp viene de su release oficial y ffmpeg de la
-/// misma fuente que empaquetan los releases del CI (Gyan/Tyrrrz/BtbN), así el
-/// botón Descargar repara lo mismo que trae el .zip/.dmg. iOS no puede
-/// ejecutar binarios externos (sandbox).
+/// Garantiza yt-dlp + ffmpeg sin pedirle nada al usuario. Si ya están
+/// (integrados en el release, en PATH o descargados antes) es un chequeo
+/// barato; si falta alguno se descarga en silencio con las mismas fuentes
+/// pineadas del release. Las descargas concurrentes se serializan con un
+/// candado global para no bajar dos veces lo mismo. En caso de fallo
+/// (p. ej. sin conexión) devuelve un error neutro: el arranque y los
+/// reintentos lo volverán a intentar solos.
+Future<void> ensureEngineBinaries() =>
+    RustLib.instance.api.crateApiEngineApiEnsureEngineBinaries();
+
+/// Compatibilidad: antes lo llamaba un botón de Ajustes (ya eliminado; el
+/// motor se auto-abastece). Se mantiene expuesto por si hace falta
+/// re-provisionar desde diagnósticos.
 Future<void> downloadMobileBinaries() =>
     RustLib.instance.api.crateApiEngineApiDownloadMobileBinaries();
 
@@ -217,6 +239,27 @@ class BinariesStatus {
           ytDlpPresent == other.ytDlpPresent &&
           ffmpegPresent == other.ffmpegPresent &&
           binDir == other.binDir;
+}
+
+/// Resumen de uso para Ajustes: nº de canciones en la biblioteca y bytes
+/// totales en disco (audios + miniaturas + temporales). La UI no expone
+/// rutas: solo esta cifra amigable.
+class StorageUsage {
+  final PlatformInt64 trackCount;
+  final BigInt totalBytes;
+
+  const StorageUsage({required this.trackCount, required this.totalBytes});
+
+  @override
+  int get hashCode => trackCount.hashCode ^ totalBytes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is StorageUsage &&
+          runtimeType == other.runtimeType &&
+          trackCount == other.trackCount &&
+          totalBytes == other.totalBytes;
 }
 
 class YtdlpInfo {

@@ -219,10 +219,20 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
-  /// Instancias estables: si se recrean en cada build, el State de
-  /// LibraryScreen (búsqueda en curso / resultados) se puede perder en
-  /// cada notify del AppModel.
-  static const _pages = [LibraryScreen(), DownloadsScreen(), PlaylistsScreen()];
+  /// Tick que sube cada vez que se vuelve de Ajustes en macOS
+  /// (dirección Ajustes → Biblioteca): LibraryScreen lo usa para el pop
+  /// sutil del buscador. Las páginas llevan key estable para no perder su
+  /// State (búsqueda en curso, scroll) en cada rebuild del AppModel.
+  int _settingsReturnTick = 0;
+
+  List<Widget> get _pages => [
+    LibraryScreen(
+      key: const ValueKey('library'),
+      settingsReturnTick: _settingsReturnTick,
+    ),
+    const DownloadsScreen(key: ValueKey('downloads')),
+    const PlaylistsScreen(key: ValueKey('playlists')),
+  ];
 
   int _completedCount() {
     final model = AppModelProvider.of(context);
@@ -306,9 +316,18 @@ class _HomeShellState extends State<HomeShell> {
                 borderRadius: BorderRadius.circular(6),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(6),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                  ),
+                  onTap: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                    );
+                    // Solo macOS, solo al volver a Biblioteca: pop sutil del
+                    // buscador aprovechando la transición. Si se vuelve a
+                    // otra pestaña, la animación correría offstage y no se
+                    // vería.
+                    if (isMacOSPlatform && context.mounted && _index == 0) {
+                      setState(() => _settingsReturnTick++);
+                    }
+                  },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,

@@ -52,6 +52,42 @@ class RecentSearchesState extends State<RecentSearches> {
   /// que el framework prohíbe antes de que initState termine).
   bool _historyLoaded = false;
 
+  /// Índice seleccionado con el teclado (flechas) sobre la lista navegable
+  /// (sugerencias + historial). -1 = ninguno: se está escribiendo.
+  int _selectedIndex = -1;
+
+  /// Ítems navegables con el teclado, en orden visual: sugerencias primero,
+  /// luego historial.
+  List<String> get _navItems => [
+    ..._predictions,
+    ..._history.map((e) => e.query),
+  ];
+
+  /// Nº de ítems navegables (0 si la lista está vacía o solo hay spinner).
+  int get navItemCount => _navItems.length;
+
+  /// ¿Hay una sugerencia/historial resaltado por teclado?
+  bool get hasNavSelection =>
+      _selectedIndex >= 0 && _selectedIndex < _navItems.length;
+
+  /// Mueve el resaltado `delta` posiciones (típico +1/-1). Desde -1, bajar
+  /// entra al primer ítem; desde el primero, subir vuelve a -1 (al campo).
+  void moveSelection(int delta) {
+    final n = _navItems.length;
+    if (n == 0) return;
+    setState(() {
+      _selectedIndex = (_selectedIndex + delta).clamp(-1, n - 1);
+    });
+  }
+
+  /// Texto resaltado para buscar con Enter, o `null` si no hay selección.
+  String? confirmSelection() => hasNavSelection ? _navItems[_selectedIndex] : null;
+
+  /// Quita el resaltado y vuelve al texto que se está escribiendo.
+  void clearSelection() {
+    if (_selectedIndex != -1) setState(() => _selectedIndex = -1);
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -81,7 +117,13 @@ class RecentSearchesState extends State<RecentSearches> {
     try {
       final model = AppModelProvider.of(context);
       final entries = await model.loadRecentSearches(widget.source);
-      if (mounted) setState(() => _history = entries);
+      // La lista cambió: el resaltado de teclado deja de ser válido.
+      if (mounted) {
+        setState(() {
+          _history = entries;
+          _selectedIndex = -1;
+        });
+      }
     } catch (_) {}
   }
 
@@ -91,6 +133,7 @@ class RecentSearchesState extends State<RecentSearches> {
       setState(() {
         _predictions = [];
         _loadingPredictions = false;
+        _selectedIndex = -1;
       });
       return;
     }
@@ -105,10 +148,17 @@ class RecentSearchesState extends State<RecentSearches> {
     try {
       final results = await YoutubeSearch.getQuerySuggestions(query);
       if (!mounted || seq != _predSeq) return;
-      setState(() => _predictions = results);
+      // Nuevas sugerencias: se resetea el resaltado de teclado.
+      setState(() {
+        _predictions = results;
+        _selectedIndex = -1;
+      });
     } catch (_) {
       if (!mounted || seq != _predSeq) return;
-      setState(() => _predictions = []);
+      setState(() {
+        _predictions = [];
+        _selectedIndex = -1;
+      });
     } finally {
       if (mounted && seq == _predSeq) {
         setState(() => _loadingPredictions = false);
@@ -127,16 +177,22 @@ class RecentSearchesState extends State<RecentSearches> {
     final scheme = Theme.of(context).colorScheme;
     final subtle = scheme.onSurface.withValues(alpha: 0.55);
 
-    // Sólo el spinner en marcha: centrado en el área del visor.
+    // Sólo el spinner en marcha: centrado en el área del visor, con aire
+    // vertical para que no quede pegado arriba. El padre es una columna de
+    // tamaño mínimo, así que el Padding + Center garantiza el centrado
+    // horizontal aunque no haya más contenido.
     if (_loadingPredictions && _predictions.isEmpty && !hasHistory) {
-      return Center(
-        child: isApplePlatform
-            ? const CupertinoActivityIndicator(radius: 12)
-            : const SizedBox(
-                width: 28,
-                height: 28,
-                child: CircularProgressIndicator(strokeWidth: 2.5),
-              ),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Center(
+          child: isApplePlatform
+              ? const CupertinoActivityIndicator(radius: 12)
+              : const SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                ),
+        ),
       );
     }
 
@@ -158,32 +214,22 @@ class RecentSearchesState extends State<RecentSearches> {
                   ),
                 ),
               ),
-              ..._predictions.map(
-                (q) => ListTile(
-                  dense: true,
-                  leading: HugeIcon(
-                    icon: HugeIcons.strokeRoundedTrendingUpDown,
-                    size: 18,
-                    color: subtle,
-                  ),
-                  title: Text(q, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  onTap: () => widget.onTap(q),
+              for (var i = 0; i < _predictions.length; i++)
+                _navTile(
+                  context: context,
+                  navIndex: i,
+                  leadingIcon: HugeIcons.strokeRoundedTrendingUpDown,
+                  subtle: subtle,
+                  title: _predictions[i],
+                  onTap: () => widget.onTap(_predictions[i]),
                 ),
-              ),
             ],
             if (_loadingPredictions && _predictions.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 4,
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Center(
+                  child: _PredictionsSpinner(),
                 ),
-                child: isApplePlatform
-                    ? const CupertinoActivityIndicator()
-                    : const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
               ),
             if (hasHistory) ...[
               Padding(
@@ -197,9 +243,9 @@ class RecentSearchesState extends State<RecentSearches> {
                   ),
                 ),
               ),
-              ..._history.map(
-                (entry) => Dismissible(
-                  key: ValueKey(entry.id),
+              for (var j = 0; j < _history.length; j++)
+                Dismissible(
+                  key: ValueKey(_history[j].id),
                   direction: DismissDirection.endToStart,
                   background: Container(
                     alignment: Alignment.centerRight,
@@ -211,29 +257,71 @@ class RecentSearchesState extends State<RecentSearches> {
                     ),
                   ),
                   onDismissed: (_) {
-                    widget.onDelete(entry);
-                    setState(() => _history.remove(entry));
+                    widget.onDelete(_history[j]);
+                    setState(() {
+                      _history.removeAt(j);
+                      _selectedIndex = -1;
+                    });
                   },
-                  child: ListTile(
-                    dense: true,
-                    leading: HugeIcon(
-                      icon: HugeIcons.strokeRoundedClock01,
-                      size: 18,
-                      color: subtle,
-                    ),
-                    title: Text(
-                      entry.query,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    onTap: () => widget.onTap(entry.query),
+                  child: _navTile(
+                    context: context,
+                    navIndex: _predictions.length + j,
+                    leadingIcon: HugeIcons.strokeRoundedClock01,
+                    subtle: subtle,
+                    title: _history[j].query,
+                    onTap: () => widget.onTap(_history[j].query),
                   ),
                 ),
-              ),
             ],
+            if (_navItems.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: Text(
+                  '↑↓ navegar · Enter buscar',
+                  style: TextStyle(fontSize: 11, color: subtle),
+                ),
+              ),
           ],
         ),
       ),
+    );
+  }
+
+  /// Fila navegable por teclado: cuando su índice coincide con
+  /// [_selectedIndex] se resalta para mostrar por dónde va el cursor.
+  Widget _navTile({
+    required BuildContext context,
+    required int navIndex,
+    required List<List<dynamic>> leadingIcon,
+    required Color subtle,
+    required String title,
+    required VoidCallback onTap,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return ListTile(
+      dense: true,
+      selected: navIndex == _selectedIndex,
+      selectedTileColor: scheme.primary.withValues(alpha: 0.14),
+      selectedColor: scheme.onSurface,
+      leading: HugeIcon(icon: leadingIcon, size: 18, color: subtle),
+      title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      onTap: onTap,
+    );
+  }
+}
+
+/// Spinner pequeño y centrado para las sugerencias en curso cuando ya hay
+/// historial en pantalla. Extraído para usarlo dentro de un `const`.
+class _PredictionsSpinner extends StatelessWidget {
+  const _PredictionsSpinner();
+
+  @override
+  Widget build(BuildContext context) {
+    if (isApplePlatform) return const CupertinoActivityIndicator();
+    return const SizedBox(
+      width: 16,
+      height: 16,
+      child: CircularProgressIndicator(strokeWidth: 2),
     );
   }
 }

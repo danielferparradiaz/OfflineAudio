@@ -5,6 +5,7 @@ import 'package:offline_audio_app/src/adaptive.dart';
 import 'package:offline_audio_app/src/app_update.dart';
 import 'package:offline_audio_app/src/rust/api/engine_api.dart';
 import 'package:offline_audio_app/src/settings.dart';
+import 'package:offline_audio_app/src/widgets/widgets.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -18,7 +19,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   YtdlpInfo? _ytdlp;
   String? _ytdlpMessage;
   bool _checking = false;
-  AppDirs? _dirs;
+
+  /// Streaming (OfflineAudio Cloud): traslado de la biblioteca a los
+  /// servidores para liberar espacio del dispositivo. Preferencia
+  /// persistida en el motor (`sync.streaming_enabled`).
+  bool _streaming = false;
 
   /// Versión de la app instalada (pubspec `version:`) y resultado del
   /// chequeo contra el último release publicado en GitHub.
@@ -37,13 +42,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() => _appVersion = info.version);
     try {
       final ytdlp = await getYtdlpStatus();
-      final dirs = await appDirs();
-      if (mounted) {
-        setState(() {
-          _ytdlp = ytdlp;
-          _dirs = dirs;
-        });
-      }
+      if (mounted) setState(() => _ytdlp = ytdlp);
     } catch (e) {
       if (mounted) {
         setState(
@@ -51,6 +50,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
     }
+    final streaming = await isStreamingEnabled();
+    if (mounted) setState(() => _streaming = streaming);
   }
 
   Future<void> _checkYtdlp() async {
@@ -162,23 +163,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           const Divider(),
           _SectionTitle('Almacenamiento'),
-          if (_dirs != null) ...[
-            ListTile(
-              leading: const HugeIcon(icon: HugeIcons.strokeRoundedFolder01),
-              title: const Text('Biblioteca (canciones .opus)'),
-              subtitle: Text(_dirs!.cache),
+          // Sin rutas crudas: solo un resumen de uso legible. Las rutas
+          // internas las gestiona el motor.
+          const StorageSummaryTile(),
+          ListTile(
+            leading: const HugeIcon(
+              icon: HugeIcons.strokeRoundedCloud,
             ),
-            ListTile(
-              leading: const HugeIcon(icon: HugeIcons.strokeRoundedImage01),
-              title: const Text('Miniaturas'),
-              subtitle: Text(_dirs!.thumbs),
+            title: const Text('Activar Streaming'),
+            subtitle: Text(
+              _streaming
+                  ? 'Activado: tu biblioteca se trasladará a OfflineAudio '
+                      'Cloud con la próxima actualización'
+                  : 'Trasladar tu biblioteca a la nube y liberar espacio '
+                      'en este dispositivo',
             ),
-            ListTile(
-              leading: const HugeIcon(icon: HugeIcons.strokeRoundedDatabase),
-              title: const Text('Temporal'),
-              subtitle: Text(_dirs!.tmp),
+            trailing: Switch.adaptive(
+              value: _streaming,
+              onChanged: (_) => _openStreamingDialog(),
             ),
-          ],
+          ),
           const SizedBox(height: 32),
           _buildFooter(context),
         ],
@@ -235,8 +239,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   /// Explica la utilidad de Sync: mantener biblioteca, listas de reproducción
   /// y vídeos sincronizados entre dispositivos con la cuenta de OfflineAudio.
-  Future<void> _showSyncInfo(BuildContext context) {
-    return showSyncInfoDialog(context);
+  Future<void> _showSyncInfo(BuildContext context) async {
+    await showSyncInfoDialog(context);
+    final streaming = await isStreamingEnabled();
+    if (mounted) setState(() => _streaming = streaming);
+  }
+
+  /// La fila de Almacenamiento y el chip Sync comparten el mismo diálogo y
+  /// la misma preferencia: una sola fuente de verdad.
+  Future<void> _openStreamingDialog() {
+    return _showSyncInfo(context);
   }
 
   Widget _buildFooter(BuildContext context) {
@@ -245,7 +257,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
-        'OfflineAudio 1.1.1 · uso personal.\n'
+        'OfflineAudio 1.2.0 · uso personal.\n'
         'Uso exclusivo de contenidos que tienes derecho a descargar.',
         textAlign: TextAlign.center,
         style: TextStyle(fontSize: 12, color: subtle),

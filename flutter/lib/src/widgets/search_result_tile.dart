@@ -11,11 +11,16 @@ class SearchResultTile extends StatelessWidget {
     required this.result,
     required this.onTap,
     required this.onActions,
+    this.loading = false,
   });
 
   final SearchResult result;
   final VoidCallback onTap;
   final VoidCallback onActions;
+
+  /// El avance de esta fila se está resolviendo: se muestra un spinner en
+  /// vez del botón de opciones para que la espera sea visible.
+  final bool loading;
 
   @override
   Widget build(BuildContext context) {
@@ -48,11 +53,20 @@ class SearchResultTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: IconButton(
-        icon: const HugeIcon(icon: HugeIcons.strokeRoundedMoreVertical),
-        tooltip: 'Ver y descargar',
-        onPressed: onActions,
-      ),
+      trailing: loading
+          ? const SizedBox(
+              width: 48,
+              height: 48,
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          : IconButton(
+              icon: const HugeIcon(icon: HugeIcons.strokeRoundedMoreVertical),
+              tooltip: 'Ver y descargar',
+              onPressed: onActions,
+            ),
     );
   }
 }
